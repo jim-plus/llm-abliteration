@@ -73,7 +73,7 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         config["model"],
         trust_remote_code=True,
-        torch_dtype=precision,
+        dtype=precision,
         low_cpu_mem_usage=True,
         device_map=config["device"],
         quantization_config=quant_config,
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     )
 
     if isinstance(config["input-refusal"], str):
-        print(f"Loading refusal tensor from {config["input-refusal"]}...")
+        print(f"Loading refusal tensor from {config['input-refusal']}...")
         refusal_dir = torch.load(config["input-refusal"])
     else:
         print("Computing refusal tensor...")
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         )
 
     if isinstance(config["output-refusal"], str):
-        print(f"Saving refusal tensor to {config["output-refusal"]}...")
+        print(f"Saving refusal tensor to {config['output-refusal']}...")
         torch.save(refusal_dir, config["output-refusal"])
 
     if not isinstance(config["output"], str):
@@ -114,7 +114,7 @@ if __name__ == "__main__":
         model = AutoModelForCausalLM.from_pretrained(
             config["model"],
             trust_remote_code=True,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
             device_map="cpu",
         )
@@ -126,6 +126,6 @@ if __name__ == "__main__":
         config["skip-end"],
         config["scale-factor"],
     )
-    print(f"Saving abliterated model to {config["output"]}...")
+    print(f"Saving abliterated model to {config['output']}...")
     model.save_pretrained(config["output"])
     tokenizer.save_pretrained(config["output"])
