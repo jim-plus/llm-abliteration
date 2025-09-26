@@ -21,6 +21,5 @@ def load_data(path: str) -> list[str]:
     elif path.endswith(".jsonl"):
         with open(path, "r", encoding="utf-8") as f:
             return [json.loads(line.strip()) for line in f if line.strip()]
-        return data
     else:
         raise ValueError("Unsupported file format")
