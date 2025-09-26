@@ -75,7 +75,7 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         trust_remote_code=True,
-        torch_dtype=precision,
+        dtype=precision,
         low_cpu_mem_usage=True,
         device_map=args.device,
         quantization_config=quant_config,
