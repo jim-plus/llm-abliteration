@@ -34,16 +34,22 @@ def compute_refusals(
         mean = None
         count = 0
         for token in tqdm(tokens, desc=desc):
+            attention_mask = torch.ones_like(token, dtype=torch.long, device=mod
+el.device)
             raw_output = model.generate(
                 token.to(model.device),
+                attention_mask=attention_mask,
                 max_new_tokens=1,
                 return_dict_in_generate=True,
                 output_hidden_states=True,
                 # use_cache=False,
                 pad_token_id=tokenizer.eos_token_id,
             )
+            del attention_mask
             cpu_output = extract_hidden_states(raw_output)
+            del raw_output
             current_hidden = cpu_output["hidden_states"][0][layer_idx][:, pos, :]
+            del cpu_output
             assert isinstance(current_hidden, torch.Tensor)
             current_hidden.detach()
 
@@ -57,7 +63,7 @@ def compute_refusals(
                 mean = mean + (delta.sum(dim=0)) / total_count
             count = total_count
 
-            del raw_output, cpu_output, current_hidden
+            del current_hidden
             torch.cuda.empty_cache()
         assert mean is not None
         return mean
