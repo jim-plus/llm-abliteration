@@ -51,7 +51,7 @@ el.device)
             current_hidden = cpu_output["hidden_states"][0][layer_idx][:, pos, :]
             del cpu_output
             assert isinstance(current_hidden, torch.Tensor)
-            current_hidden.detach()
+            # current_hidden.detach()
 
             batch_size = current_hidden.size(dim=0)
             total_count = count + batch_size
