@@ -1,24 +1,24 @@
-# Abliteration
+# llm-abliteration
 
-Make abliterated models using transformers, easy and fast.
+Make abliterated models using Transformers, easy and fast.
 
 ## Introduction
 
-There exist some directions that make LLMs to refuse users' input. Abliteration is a technique that can calculate the most significant refusal directions with harmful and harmless prompts, and then remove them from the model. This is a crude, proof-of-concept implementation to remove refusals from an LLM model without using TransformerLens.
+There exist directions that cause LLMs to refuse users' input. Abliteration is a technique that can approximate the most significant refusal direction by contrasting harmful and harmless prompts, and then remove/ablate the direction from the model. This is a crude, proof-of-concept implementation to remove refusals from an LLM without the use of TransformerLens.
 
-The code has been tested on Llama-3.2, Qwen2.5-Coder, Ministral-8b.
+The code has been tested on Llama-3.2, Qwen2.5-Coder, Ministral-8b, and now Mistral-7B-Instruct-v0.2.
 
-VRAM/RAM requirements: This repository has been making efforts to reduce VRAM usage. You can abliterate whatever model you want, as long as it fits in your VRAM. Loading model in 4-bit precision using bitsandbytes is recommended for large models if you have limited VRAM. However, I always assume that you have enough memory to load the **bf16** model.
+VRAM/RAM requirements: This repository has been making efforts to reduce VRAM usage. You can abliterate whatever any model provided it fits within VRAM. Loading model in 4-bit precision using bitsandbytes is possible and recommended for large models when VRAM is limited. It is assumed that there is enough cpu memory to load the **bf16** model; the method for ablating the refusal vector could be enhanced to perform lazy-loading in the future.
 
 > [!NOTE]
-> Abliteration is not uncensorment. Though abliterated, it doesn't necessarily mean the model is completely uncensored, it simply will not explicitly refuse you, theoretically.
+> Abliteration is not full removal of censorship. Though abliterated, it doesn't necessarily mean the model is completely uncensored; it simply will not explicitly refuse, theoretically, based on the nature of refusal captured in datasets used for abliteration.
 
 ## Quick Start
 
 ### Clone the repositoty
 
 ```shell
-git clone https://github.com/Orion-zhen/abliteration.git && cd abliteration
+git clone https://github.com/jim-plus/llm-abliteration.git && cd abliteration
 ```
 
 ### Install dependencies
@@ -160,7 +160,7 @@ Available targets can be found in [transformers model architectures](https://git
 
 This repository provides a bunch of parameters to optimize. To get the best results, you can try the following steps:
 
-1. Carefully choose your prompts. Prompts in this repository is a general example, you can use your own prompts to get better results.
+1. Carefully choose your prompts. Prompts in this repository are an illustrative example; you can use your own prompts to get better results.
 2. Adjust parameters. The script provides various parameters to control the abliteration progress. You can try different values to see if it helps.
 3. Change the targets. You can modify the code to abliterate other targets, as long as it won't mess up the model.
 4. If you have limited VRAM, try `--load-in-4bit` or `--load-in-8bit` to load the model in 4-bit or 8-bit precision.
@@ -175,6 +175,7 @@ python abliterate.py --help
 
 ## Credits
 
+- [Orion-zhen/abliteration](https://github.com/Orion-zhen/abliteration)
 - [Sumandora/remove-refusals-with-transformers](https://github.com/Sumandora/remove-refusals-with-transformers)
 - [AUGMXNT/deccp](https://github.com/AUGMXNT/deccp)
 - [huihui-ai](https://huggingface.co/huihui-ai)
