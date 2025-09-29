@@ -39,6 +39,12 @@ parser.add_argument(
     "--skip-end", type=int, default=0, help="Number of layers to skip at the end"
 )
 parser.add_argument(
+    "--sparsify",
+    type=float,
+    default=0.0,
+    help="Fraction of refusal path tensor to sparsify by magnitude (think minP)",
+)
+parser.add_argument(
     "--layer-fraction",
     type=float,
     default=1.0,
@@ -126,6 +132,7 @@ def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
     config.setdefault("skip-begin", args.skip_begin)
     config.setdefault("skip-end", args.skip_end)
     config.setdefault("layer-fraction", args.layer_fraction)
+    config.setdefault("sparsify", args.sparsify)
     config.setdefault("scale-factor", args.scale_factor)
     config.setdefault("flash-attn", args.flash_attn)
     config.setdefault("data-harmful", args.data_harmful)

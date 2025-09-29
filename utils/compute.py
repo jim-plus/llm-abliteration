@@ -5,7 +5,6 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
-
 def extract_hidden_states(raw_output) -> dict:
     processed = {}
 
@@ -21,6 +20,14 @@ def extract_hidden_states(raw_output) -> dict:
 
     return processed
 
+def extract_hidden_states_gpu(raw_output) -> dict:
+    processed = {}
+    assert hasattr(raw_output, "hidden_states")
+    gpu_hidden = []
+    for layer_output in raw_output.hidden_states:
+        gpu_hidden.append(layer_output)
+    processed["hidden_states"] = gpu_hidden
+    return processed
 
 def compute_refusals(
     model: PreTrainedModel,
@@ -34,8 +41,7 @@ def compute_refusals(
         mean = None
         count = 0
         for token in tqdm(tokens, desc=desc):
-            attention_mask = torch.ones_like(token, dtype=torch.long, device=mod
-el.device)
+            attention_mask = torch.ones_like(token, dtype=torch.long, device=model.device)
             raw_output = model.generate(
                 token.to(model.device),
                 attention_mask=attention_mask,
@@ -47,9 +53,7 @@ el.device)
             )
             del attention_mask
             cpu_output = extract_hidden_states(raw_output)
-            del raw_output
             current_hidden = cpu_output["hidden_states"][0][layer_idx][:, pos, :]
-            del cpu_output
             assert isinstance(current_hidden, torch.Tensor)
             # current_hidden.detach()
 
@@ -60,13 +64,54 @@ el.device)
                 mean = current_hidden.mean(dim=0)
             else:
                 delta = current_hidden - mean.squeeze(0)
-                mean = mean + (delta.sum(dim=0)) / total_count
+                # mean = mean + (delta.sum(dim=0)) / total_count
+                mean.add_(delta.sum(dim=0) / total_count)
+            count = total_count
+
+            del raw_output, cpu_output, current_hidden
+            torch.cuda.empty_cache()
+        assert mean is not None
+        return mean
+
+    def welford_gpu(tokens: list[torch.Tensor], desc: str) -> torch.Tensor:
+        mean = None
+        count = 0
+        for token in tqdm(tokens, desc=desc):
+            attention_mask = torch.ones_like(token, dtype=torch.long, device=model.device)
+            raw_output = model.generate(
+                token.to(model.device),
+                attention_mask=attention_mask,
+                max_new_tokens=1,
+                return_dict_in_generate=True,
+                output_hidden_states=True,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+            del attention_mask
+            gpu_output = extract_hidden_states_gpu(raw_output)
+            del raw_output
+            current_hidden = gpu_output["hidden_states"][0][layer_idx][:, pos, :]
+            del gpu_output
+
+            assert isinstance(current_hidden, torch.Tensor)
+
+            batch_size = current_hidden.size(dim=0)
+            total_count = count + batch_size
+
+            if mean is None:
+                mean = current_hidden.mean(dim=0)
+            else:
+                delta = current_hidden - mean.squeeze(0)
+                # Use the more efficient in-place add operation
+                mean.add_(delta.sum(dim=0) / total_count)
+
             count = total_count
 
             del current_hidden
             torch.cuda.empty_cache()
+
         assert mean is not None
-        return mean
+        # Only move the final result to the CPU
+        return mean.to("cpu")
 
     harmful_tokens = [
         tokenizer.apply_chat_template(
@@ -76,6 +121,9 @@ el.device)
         )
         for inst in harmful_list
     ]
+    torch.cuda.empty_cache()
+    gc.collect()
+
     harmless_tokens = [
         tokenizer.apply_chat_template(
             conversation=[{"role": "user", "content": inst}],
@@ -84,17 +132,18 @@ el.device)
         )
         for inst in harmless_list
     ]
-
     torch.cuda.empty_cache()
     gc.collect()
 
     layer_idx = int(len(model.model.layers) * layer_fraction) # type: ignore
     pos = -1
 
-    harmful_mean = welford(harmful_tokens, "Generating harmful outputs") # type: ignore
+    harmful_mean = welford_gpu(harmful_tokens, "Generating harmful outputs") # type: ignore
+    torch.cuda.empty_cache()
     gc.collect()
-    harmless_mean = welford(harmless_tokens, "Generating harmless outputs") # type: ignore
+    harmless_mean = welford_gpu(harmless_tokens, "Generating harmless outputs") # type: ignore
     refusal_dir = harmful_mean - harmless_mean
-    refusal_dir = refusal_dir / refusal_dir.norm()
-    print(refusal_dir)
+#    refusal_dir = refusal_dir / refusal_dir.norm()
+    torch.cuda.empty_cache()
+    gc.collect()
     return refusal_dir
