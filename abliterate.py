@@ -10,6 +10,7 @@ from utils.data import load_data
 from utils.compute import compute_refusals
 from utils.apply import apply_abliteration
 from utils.arguments import parser, generate_config
+from utils.sparsify import magnitude_sparsify, sparsity_stats
 
 
 if __name__ == "__main__":
@@ -118,6 +119,12 @@ if __name__ == "__main__":
             low_cpu_mem_usage=True,
             device_map="cpu",
         )
+
+    # refusal direction normalization deferred until now
+    if config["sparsify"] > 0.0:
+        print(sparsity_stats(refusal_dir))
+        refusal_dir = magnitude_sparsify(refusal_dir, fraction=config["sparsify"])
+        print(sparsity_stats(refusal_dir))
 
     model = apply_abliteration(
         model,
