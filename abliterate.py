@@ -89,13 +89,16 @@ if __name__ == "__main__":
         config["model"], trust_remote_code=True, device_map=config["device"]
     )
 
+    layer_idx = int(len(model.model.layers) * config["layer-fraction"])
+
     if isinstance(config["input-refusal"], str):
         print(f"Loading refusal tensor from {config['input-refusal']}...")
         refusal_dir = torch.load(config["input-refusal"])
     else:
         print("Computing refusal tensor...")
         refusal_dir = compute_refusals(
-            model, tokenizer, harmful_list, harmless_list, config["layer-fraction"]
+            model, tokenizer, harmful_list, harmless_list, layer_idx,
+            config["batch-size"], config["sweep"]
         )
 
     if isinstance(config["output-refusal"], str):
@@ -129,6 +132,7 @@ if __name__ == "__main__":
     model = apply_abliteration(
         model,
         refusal_dir,
+        layer_idx,
         config["skip-begin"],
         config["skip-end"],
         config["scale-factor"],
