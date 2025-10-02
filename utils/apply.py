@@ -69,8 +69,8 @@ def modify_tensor_improved(
 
     # Optimized computation: instead of computing outer product then matrix multiply,
     # use the identity (v ⊗ v) @ A = v @ (v^T @ A) where ⊗ is outer product
-    # This avoids creating the full [4096, 4096] matrix
-    projection = torch.matmul(refusal_dir_gpu, tensor_gpu)  # Shape: [14336]
+    # This avoids creating the full matrix
+    projection = torch.matmul(refusal_dir_gpu, tensor_gpu)
     tensor_gpu -= scale_factor * torch.outer(refusal_dir_gpu, projection)
 
     # Convert back to original dtype and move back to original device
