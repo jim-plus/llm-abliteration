@@ -1,17 +1,19 @@
 # llm-abliteration
 
-Make abliterated models using Transformers, easy and fast.
+Make abliterated models using Transformers, easy and fast. Now faster with batch inference.
 
 ## Introduction
 
-There exist directions that cause LLMs to refuse users' input. Abliteration is a technique that can approximate the most significant refusal direction by contrasting harmful and harmless prompts, and then remove/ablate the direction from the model. This is a crude, proof-of-concept implementation to remove refusals from an LLM without the use of TransformerLens.
+There exist directions that cause LLMs to refuse users' input. Abliteration is a technique that can approximate the most significant refusal direction by contrasting harmful and harmless prompts, and then remove/ablate the direction from the model. This is a proof-of-concept implementation to explore the removal refusals from an LLM without the use of TransformerLens, although some GPU acceleration has been implemented.
 
 The code has been tested on Llama-3.2, Qwen2.5-Coder, Ministral-8b, and now Mistral-7B-Instruct-v0.2.
 
-VRAM/RAM requirements: This repository has been making efforts to reduce VRAM usage. You can abliterate whatever any model provided it fits within VRAM. Loading model in 4-bit precision using bitsandbytes is possible and recommended for large models when VRAM is limited. It is assumed that there is enough cpu memory to load the **bf16** model; the method for ablating the refusal vector could be enhanced to perform lazy-loading in the future.
+VRAM/RAM requirements: This codebase reflects efforts to reduce VRAM usage. You can abliterate whatever any model provided it fits within VRAM. Loading model in 4-bit precision using bitsandbytes is possible and recommended for large models when VRAM is limited. It is assumed that there is enough cpu memory to load the **bf16** (or full weight) model; the method for ablating the refusal vector could be enhanced to perform lazy-loading in the future to reduce this requirement.
+
+CUDA is assumed to be available, for practical purposes. The original abliteration paper and code used TransformerLens, and measured resid_pre, resid_mid, and resid_post. Failspy's code measured resid_pre and resid_post. Sumandora's code based on Transformers accesses the equivalent of resid_post with hidden_states.
 
 > [!NOTE]
-> Abliteration is not full removal of censorship. Though abliterated, it doesn't necessarily mean the model is completely uncensored; it simply will not explicitly refuse, theoretically, based on the nature of refusal captured in datasets used for abliteration.
+> Abliteration is not full removal of censorship. Abliteration doesn't necessarily mean the model is completely uncensored; a properly abliterated model will not explicitly refuse, theoretically, based on the nature of refusal captured in datasets used for abliteration.
 
 ## Quick Start
 
@@ -100,11 +102,12 @@ Loading config file will **overwrite** command line arguments.
 
 ### Use your own prompts
 
-You can use your own prompts to abliterate your model. Supported file formats are `.txt`, `.parquet` and `.json`. Detailed formats are listed below:
+You can use your own prompts to abliterate your model. Supported file formats are `.txt`, `.parquet`, `.json`, and `.jsonl`. Detailed formats are listed below:
 
 - `.txt`: Each line of the file is a prompt
 - `.parquet`: A parquet file with column `text`
-- `.json`: A json file with list of strings
+- `.json`: A JSON file with list of strings
+- `.jsonl`: A JSON Lines file with a list of strings
 
 Then load your own prompts using `--data-harmful` and `--data-harmless` arguments:
 
@@ -160,9 +163,9 @@ Available targets can be found in [transformers model architectures](https://git
 
 This repository provides a bunch of parameters to optimize. To get the best results, you can try the following steps:
 
-1. Carefully choose your prompts. Prompts in this repository are an illustrative example; you can use your own prompts to get better results.
-2. Adjust parameters. The script provides various parameters to control the abliteration progress. You can try different values to see if it helps.
-3. Change the targets. You can modify the code to abliterate other targets, as long as it won't mess up the model.
+1. Carefully choose your prompts. Prompts in this repository are for illustrative purposes only; curate your own prompt datasets to obtain better results.
+2. Adjust parameters. The script provides various parameters to control the abliteration process.
+3. Experiment with changing the targets. You can modify the code to abliterate other targets, as long as it won't mess up the model.
 4. If you have limited VRAM, try `--load-in-4bit` or `--load-in-8bit` to load the model in 4-bit or 8-bit precision.
 
 ### Full arguments
@@ -177,5 +180,7 @@ python abliterate.py --help
 
 - [Orion-zhen/abliteration](https://github.com/Orion-zhen/abliteration)
 - [Sumandora/remove-refusals-with-transformers](https://github.com/Sumandora/remove-refusals-with-transformers)
+- [FailSpy/abliterator](https://github.com/FailSpy/abliterator/)
 - [AUGMXNT/deccp](https://github.com/AUGMXNT/deccp)
 - [huihui-ai](https://huggingface.co/huihui-ai)
+- [Refusal in LLMs is mediated by a single direction](https://github.com/andyrdt/refusal_direction)
