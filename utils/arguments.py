@@ -10,7 +10,7 @@ parser.add_argument(
     "-m",
     type=str,
     default=None,
-    help="Your model directory or huggingface model ID",
+    help="Local model directory or huggingface model ID",
 )
 parser.add_argument(
     "--device",
@@ -18,7 +18,7 @@ parser.add_argument(
     type=str,
     choices=["auto", "cuda", "cpu"],
     default="auto",
-    help="Target device to process abliteration. Warning, bitsandbytes quantization DOES NOT support CPU",
+    help="Target device for processing abliteration; warning: bitsandbytes quantization DOES NOT support CPU",
 )
 parser.add_argument(
     "--precision",
@@ -27,6 +27,12 @@ parser.add_argument(
     choices=["fp16", "bf16", "fp32"],
     default="bf16",
     help="Precision to use for ablation, default is bf16",
+)
+parser.add_argument(
+    "--batch-size",
+    type=int,
+    default=32,
+    help="Batch size during inference/calibration; default 32, stick to powers of 2 (higher will use more VRAM)"
 )
 parser.add_argument("--output", "-o", type=str, default=None, help="Output directory")
 parser.add_argument(
@@ -54,7 +60,7 @@ parser.add_argument(
     "--scale-factor",
     type=float,
     default=1.0,
-    help="Scale factor for ablation. Use a negative scale-factor to encourage refusal. If abliteration is not good, try to increase it a little bit",
+    help="Scale factor for ablation; use negative scale-factor to discourage refusal; if abliteration is weak, increasing this may help",
 )
 parser.add_argument(
     "--flash-attn", action="store_true", default=False, help="Use flash attention 2"
@@ -69,7 +75,13 @@ parser.add_argument(
     "--deccp",
     action="store_true",
     default=False,
-    help="For Chinese models, in specific topics",
+    help="For Chinese models, add certain topics",
+)
+parser.add_argument(
+    "--sweep",
+    action="store_true",
+    default=False,
+    help="Perform sweep analysis during calibration",
 )
 parser.add_argument(
     "--num-harmful", "-nhf", type=int, default=-1, help="Number of harmful calibrations"
@@ -128,6 +140,7 @@ def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
     config.setdefault("model", args.model)
     config.setdefault("device", args.device)
     config.setdefault("precision", args.precision)
+    config.setdefault("batch-size", args.batch_size)
     config.setdefault("output", args.output)
     config.setdefault("skip-begin", args.skip_begin)
     config.setdefault("skip-end", args.skip_end)
@@ -138,6 +151,7 @@ def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
     config.setdefault("data-harmful", args.data_harmful)
     config.setdefault("data-harmless", args.data_harmless)
     config.setdefault("deccp", args.deccp)
+    config.setdefault("sweep", args.sweep)
     config.setdefault("num-harmful", args.num_harmful)
     config.setdefault("num-harmless", args.num_harmless)
     config.setdefault("input-refusal", args.input_refusal)

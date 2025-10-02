@@ -83,6 +83,7 @@ def modify_tensor_improved(
 def apply_abliteration(
     model: PreTrainedModel,
     refusal_dir: torch.Tensor,
+    layer_target: int,
     skip_begin_layers: int = 1,
     skip_end_layers: int = 0,
     scale_factor: float = 1.0,
@@ -94,18 +95,24 @@ def apply_abliteration(
     ), "The model does not have the expected structure."
     num_layers = len(lm_model.layers)
     for layer_idx in tqdm(
-        range(skip_begin_layers, num_layers - skip_end_layers),
+#        range(skip_begin_layers, num_layers - skip_end_layers),
+        range(skip_begin_layers, layer_target - 1),
+#        range(max(skip_begin_layers,num_layers), num_layers - skip_end_layers),
         desc="Applying abliteration",
     ):
+        subscale = scale_factor
+        # add linear scaling prior to target intervention layer - FAILS!
+#        if (layer_idx < layer_target):
+#            subscale = (layer_idx - skip_begin_layers) / (layer_target - skip_begin_layers)
         lm_model.layers[layer_idx].self_attn.o_proj.weight = modify_tensor_improved(
             lm_model.layers[layer_idx].self_attn.o_proj.weight.data,
             refusal_dir,
-            scale_factor,
+            subscale,
         )
         lm_model.layers[layer_idx].mlp.down_proj.weight = modify_tensor_improved(
             lm_model.layers[layer_idx].mlp.down_proj.weight.data,
             refusal_dir,
-            scale_factor,
+            subscale,
         )
 
     torch.cuda.empty_cache()
