@@ -117,6 +117,11 @@ def welford_gpu_batched_multilayer(
 ) -> dict[int, torch.Tensor]:
     """Returns dict mapping layer_idx -> mean direction"""
 
+    vocab_size = model.config.vocab_size
+    print(vocab_size)
+    total_probabilities = torch.zeros(vocab_size).to(model.device)
+    total_prompts_processed = 0
+
     means = {layer_idx: None for layer_idx in layer_indices}
     counts = {layer_idx: 0 for layer_idx in layer_indices}
 
@@ -153,12 +158,17 @@ def welford_gpu_batched_multilayer(
             max_new_tokens=1,
             return_dict_in_generate=True,
             output_hidden_states=True,
+            output_scores=True,
             pad_token_id=tokenizer.eos_token_id,
         )
 
         del batch_mask
         gpu_output = extract_hidden_states_gpu(raw_output)
+        logits = raw_output.scores[0]
         del raw_output
+        probabilities = torch.nn.functional.softmax(logits, dim=-1)
+        total_probabilities += torch.sum(probabilities, dim=0)
+        total_prompts_processed += len(batch)
 
         # Process all layers at once
         for layer_idx in layer_indices:
@@ -179,7 +189,11 @@ def welford_gpu_batched_multilayer(
         del gpu_output, batch_input
         torch.cuda.empty_cache()
 
-    return {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
+    avg_probabilities = total_probabilities / total_prompts_processed
+    return_dict = {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
+    return_dict["avg_probabilities"] = avg_probabilities.to("cpu")
+    return return_dict
+    #return {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
 
 def analyze_refusal_sparsity(harmful_mean, harmless_mean):
     """Understand which dimensions matter for refusal"""
@@ -423,8 +437,12 @@ def compute_refusals(
     harmful_mean = harmful_means[layer_idx]
     harmless_mean = harmless_means[layer_idx]
     refusal_dir = harmful_mean - harmless_mean
-
 #    analyze_direction(harmful_mean, harmless_mean, layer_idx)
+
+    p_harmful = harmful_means["avg_probabilities"]
+    p_harmless = harmless_means["avg_probabilities"]
+    kl_div = torch.nn.functional.kl_div(torch.log(p_harmless), p_harmful, reduction='sum')
+    print(f"KL divergence: {kl_div.item():.4f}")
 
     torch.cuda.empty_cache()
     gc.collect()
