@@ -91,26 +91,29 @@ if __name__ == "__main__":
 
     layer_idx = int(len(model.model.layers) * config["layer-fraction"])
 
+    results = {}
     if isinstance(config["input-refusal"], str):
-        print(f"Loading refusal tensor from {config['input-refusal']}...")
-        refusal_dir = torch.load(config["input-refusal"])
+        print(f"Loading refusal information from {config['input-refusal']}...")
+        results = torch.load(config["input-refusal"])
     else:
-        print("Computing refusal tensor...")
-        refusal_dir = compute_refusals(
+        print("Computing refusal information...")
+        results = compute_refusals(
             model, tokenizer, harmful_list, harmless_list, layer_idx,
             config["batch-size"], config["sweep"]
         )
+    refusal_dir = results["refusal_dir"]
+    bias_term = results["bias_term"]
 
     if isinstance(config["output-refusal"], str):
-        print(f"Saving refusal tensor to {config['output-refusal']}...")
-        torch.save(refusal_dir, config["output-refusal"])
+        print(f"Saving refusal information to {config['output-refusal']}...")
+        torch.save(results, config["output-refusal"])
 
     if not isinstance(config["output"], str):
         sys.exit(0)
 
     print("Applying refusal tensor...")
 
-    if config["load-in-4bit"] or config["load-in-8bit"]:
+    if config["load-in-4bit"] or config["load-in-8bit"] or isinstance(config["input-refusal"]:
         print("Reloading model with bf16 precision...")
         del model
         torch.cuda.empty_cache()
