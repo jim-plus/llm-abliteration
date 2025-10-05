@@ -19,11 +19,13 @@ def modify_tensor(
     )
     tensor_modified = tensor_float32.to(torch.bfloat16)
 
+    del tensor_float32
+    del refusal_dir_float32
+
     torch.cuda.empty_cache()
     gc.collect()
 
     return torch.nn.Parameter(tensor_modified)
-
 
 def modify_tensor_refactored(
     tensor_data: torch.Tensor, refusal_dir: torch.Tensor, scale_factor: float = 1.0
@@ -44,13 +46,20 @@ def modify_tensor_refactored(
     projection = torch.matmul(refusal_dir_float32, tensor_float32)
     tensor_float32 -= scale_factor * torch.outer(refusal_dir_float32, projection)
 
+    del refusal_dir_float32
+    del projection
+
     # Return original tensor parameter as required
     tensor_modified = tensor_float32.to(tensor_data.dtype)
+
+    del tensor_float32
 
     torch.cuda.empty_cache()
     gc.collect()
 
     return torch.nn.Parameter(tensor_modified)
+
+
 
 
 def modify_tensor_improved(
@@ -73,11 +82,57 @@ def modify_tensor_improved(
     projection = torch.matmul(refusal_dir_gpu, tensor_gpu)
     tensor_gpu -= scale_factor * torch.outer(refusal_dir_gpu, projection)
 
+    del refusal_dir_gpu
+    del projection
+
     # Convert back to original dtype and move back to original device
     tensor_modified = tensor_gpu.to(original_device, dtype=original_dtype, non_blocking=True)
+    del tensor_gpu
     torch.cuda.empty_cache()
     gc.collect()
     return torch.nn.Parameter(tensor_modified)
+
+
+def modify_tensor_improved2(
+    tensor_data: torch.Tensor, refusal_dir: torch.Tensor, scale_factor: float = 1.0,
+) -> torch.nn.Parameter:
+    original_device = tensor_data.device
+    original_dtype = tensor_data.dtype
+
+    # Use no_grad context to prevent graph construction
+    with torch.no_grad():
+        # Move tensors to GPU for computation
+        tensor_gpu = tensor_data.to('cuda', dtype=torch.float32, non_blocking=True)
+        refusal_dir_gpu = refusal_dir.to('cuda', dtype=torch.float32, non_blocking=True)
+
+        # Ensure refusal_dir is a 1-dimensional tensor
+        if refusal_dir_gpu.dim() > 1:
+            refusal_dir_gpu = refusal_dir_gpu.view(-1)
+
+        # Optimized computation
+        projection = torch.matmul(refusal_dir_gpu, tensor_gpu)
+        tensor_gpu -= scale_factor * torch.outer(refusal_dir_gpu, projection)
+
+        del projection
+        del refusal_dir_gpu
+        
+        # Convert back to original dtype and move back to original device
+        tensor_modified = tensor_gpu.to(original_device, dtype=original_dtype, non_blocking=True)
+
+        del tensor_gpu
+        
+        # Force synchronization and clear cache
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+
+#    return torch.nn.Parameter(tensor_modified)
+    # Create a fresh tensor with no computation history
+    # .detach() ensures no gradient tracking, .clone() breaks all references
+    clean_tensor = tensor_modified.detach().clone()
+    del tensor_modified
+    
+    # Create Parameter from the clean tensor
+    return torch.nn.Parameter(clean_tensor)  # Defaults to requires_grad=True
 
 
 def apply_abliteration(
@@ -104,18 +159,19 @@ def apply_abliteration(
         # add linear scaling prior to target intervention layer - FAILS!
 #        if (layer_idx < layer_target):
 #            subscale = (layer_idx - skip_begin_layers) / (layer_target - skip_begin_layers)
-        lm_model.layers[layer_idx].self_attn.o_proj.weight = modify_tensor_improved(
+        lm_model.layers[layer_idx].self_attn.o_proj.weight = modify_tensor_improved2(
             lm_model.layers[layer_idx].self_attn.o_proj.weight.data,
             refusal_dir,
             subscale,
         )
-        lm_model.layers[layer_idx].mlp.down_proj.weight = modify_tensor_improved(
+        torch.cuda.empty_cache()
+        gc.collect()
+        lm_model.layers[layer_idx].mlp.down_proj.weight = modify_tensor_improved2(
             lm_model.layers[layer_idx].mlp.down_proj.weight.data,
             refusal_dir,
             subscale,
         )
-
-    torch.cuda.empty_cache()
-    gc.collect()
+        torch.cuda.empty_cache()
+        gc.collect()
 
     return model
