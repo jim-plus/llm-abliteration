@@ -279,17 +279,11 @@ def analyze_direction(
     # If means are very similar, refusal_dir is small relative to means
     snr = refusal_norm / max(harmful_norm, harmless_norm)
 
-    # 5. Angle between vectors (in degrees)
-    angle = torch.acos(torch.clamp(
-        torch.tensor(cos_sim), -1.0, 1.0
-    )) * 180 / 3.14159
-
-    # 6. Signal quality
+    # 5. Signal quality
     quality = snr * (1 - cos_sim)
 
     print(f"=== Refusal Direction Analysis (Layer {layer_idx}) ===")
     print(f"Cosine similarity:       {cos_sim:.4f}")
-    print(f"Angle between means:     {angle:.2f}°")
     print(f"Harmful mean norm:       {harmful_norm:.4f}")
     print(f"Harmless mean norm:      {harmless_norm:.4f}")
     print(f"Refusal direction norm:  {refusal_norm:.4f}")
