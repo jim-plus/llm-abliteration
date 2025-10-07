@@ -147,16 +147,16 @@ def apply_abliteration(
     lm_model = model.model
     assert hasattr(
         lm_model, "layers"
-    ), "The model does not have the expected structure."
+    ), "The model does not have the expected structure"
     num_layers = len(lm_model.layers)
+    print("Applying measurement from layer",layer_target,"of [ 0 ..",(num_layers-1),"]")
+    print("to layers",skip_begin_layers,"through",(num_layers - 1) - skip_end_layers)
     for layer_idx in tqdm(
-#        range(skip_begin_layers, num_layers - skip_end_layers),
-        range(skip_begin_layers, layer_target - 1),
-#        range(max(skip_begin_layers,num_layers), num_layers - skip_end_layers),
+        range(skip_begin_layers, num_layers - skip_end_layers),
         desc="Applying abliteration",
     ):
         subscale = scale_factor
-        # add linear scaling prior to target intervention layer - FAILS!
+# adding linear scaling prior to target intervention layer - FAILS! negative result
 #        if (layer_idx < layer_target):
 #            subscale = (layer_idx - skip_begin_layers) / (layer_target - skip_begin_layers)
         lm_model.layers[layer_idx].self_attn.o_proj.weight = modify_tensor_improved2(

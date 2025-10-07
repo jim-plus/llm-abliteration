@@ -157,18 +157,18 @@ def welford_gpu_batched_multilayer(
             max_new_tokens=1,
             return_dict_in_generate=True,
             output_hidden_states=True,
-            output_scores=True,
+#            output_scores=True,
             pad_token_id=tokenizer.eos_token_id,
         )
 
         del batch_mask
         hidden_states = raw_output.hidden_states[0]
-        logits = raw_output.scores[0]
-        del raw_output
-        probabilities = torch.nn.functional.softmax(logits, dim=-1)
-        del logits
-        total_probabilities += torch.sum(probabilities, dim=0)
-        total_prompts_processed += len(batch)
+#        logits = raw_output.scores[0]
+#        del raw_output
+#        probabilities = torch.nn.functional.softmax(logits, dim=-1)
+#        del logits
+#        total_probabilities += torch.sum(probabilities, dim=0)
+#        total_prompts_processed += len(batch)
 
         # Process all layers at once
         for layer_idx in layer_indices:
@@ -186,13 +186,13 @@ def welford_gpu_batched_multilayer(
             counts[layer_idx] = total_count
             del current_hidden
 
- #       del gpu_output, batch_input
+#        del gpu_output, batch_input
         del batch_input
         torch.cuda.empty_cache()
 
-    avg_probabilities = total_probabilities / total_prompts_processed
     return_dict = {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
-    return_dict["avg_probabilities"] = avg_probabilities.to("cpu")
+#    avg_probabilities = total_probabilities / total_prompts_processed
+#    return_dict["avg_probabilities"] = avg_probabilities.to("cpu")
     return return_dict
     #return {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
 
@@ -402,48 +402,60 @@ def compute_refusals(
 
     num_layers = len(model.model.layers)
     if layer_idx == -1:
-        layer_idx = int(num_layers * 0.6) # default guesstimate
+        layer_idx = int((num_layers - 1) * 0.6) # default guesstimate
     pos = -1
+    print("Focus layer:",layer_idx)
     focus_layers = [layer_idx]
-    # option for layer sweep analysis
+    # option for layer sweep
     if (sweep):
-        focus_layers = range(1,num_layers)
+        focus_layers = range(num_layers)
 
     harmful_means = welford_gpu_batched_multilayer(harmful_tokens, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
     torch.cuda.empty_cache()
     gc.collect()
     harmless_means = welford_gpu_batched_multilayer(harmless_tokens, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
 
-    prior = None
-    for layer in focus_layers:
-        harmful_mean = harmful_means[layer]
-        harmless_mean = harmless_means[layer]
-        analyze_direction(harmful_mean, harmless_mean, layer)
-        refusal_dir = harmful_mean - harmless_mean
-        if prior is not None:
-            cos_sim = torch.nn.functional.cosine_similarity(
-                prior, refusal_dir, dim=0
-            ).item()
-            print(f"Prior refusal cos.sim.:  {cos_sim:.4f}")
-        prior = refusal_dir
+    results = {}
+    # track number of layers in model
+    results["layers"] = num_layers
 
-    harmful_mean = harmful_means[layer_idx]
-    harmless_mean = harmless_means[layer_idx]
-    refusal_dir = harmful_mean - harmless_mean
+    # compute sweep, because we have all the information we need
+#    prior = None
+    for layer in focus_layers:
+        print("Measured layer",layer)
+        harmful_mean = harmful_means[layer]
+        results[f'harmful_{layer}'] = harmful_mean
+        harmless_mean = harmless_means[layer]
+        results[f'harmless_{layer}'] = harmless_mean
+#        analyze_direction(harmful_mean, harmless_mean, layer)
+        refusal_dir = harmful_mean - harmless_mean
+        results[f'refuse_{layer}'] = refusal_dir
+#        if prior is not None:
+#            cos_sim = torch.nn.functional.cosine_similarity(
+#                prior, refusal_dir, dim=0
+#            ).item()
+#            print(f"Prior refusal cos.sim.:  {cos_sim:.4f}")
+#        prior = refusal_dir
+
+    # track target layer
+    results["layer_idx"] = layer_idx
+
+#    harmful_mean = harmful_means[layer_idx]
+#    harmless_mean = harmless_means[layer_idx]
+#    refusal_dir = harmful_mean - harmless_mean
 
     # compute KL divergence of logits in case it offers insight
-    p_harmful = harmful_means["avg_probabilities"]
-    p_harmless = harmless_means["avg_probabilities"]
-    kl_div = torch.nn.functional.kl_div(torch.log(p_harmless), p_harmful, reduction='sum')
-    print(f"KL divergence: {kl_div.item():.4f}")
+  #  p_harmful = harmful_means["avg_probabilities"]
+  #  p_harmless = harmless_means["avg_probabilities"]
+  #  kl_div = torch.nn.functional.kl_div(torch.log(p_harmless), p_harmful, reduction='sum')
+  #  print(f"KL divergence: {kl_div.item():.4f}")
     # refusal direction implies a refusal hyperplane
-    b = -torch.dot(refusal_dir / torch.norm(refusal_dir), (harmful_mean + harmless_mean) / 2)
-    print(f"Computed normal vector (w) shape: {refusal_dir.shape}")
-    print(f"Computed bias term (b) value: {b.item()}")
+ #   b = -torch.dot(refusal_dir / torch.norm(refusal_dir), (harmful_mean + harmless_mean) / 2)
+ #   print(f"Computed normal vector (w) shape: {refusal_dir.shape}")
+ #   print(f"Computed bias term (b) value: {b.item()}")
 
-    results = {}
-    results["refusal_dir"] = refusal_dir
-    results["bias_term"] = b
+#    results["refusal_dir"] = refusal_dir
+ #   results["bias_term"] = b
 
     torch.cuda.empty_cache()
     gc.collect()
