@@ -3,6 +3,7 @@ import sys
 import torch
 import random
 from datasets import load_dataset
+from transformers import AutoConfig
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 from transformers.utils.quantization_config import BitsAndBytesConfig
@@ -31,12 +32,15 @@ if __name__ == "__main__":
     torch.inference_mode()
     torch.set_grad_enabled(False)
 
+    model_config = AutoConfig.from_pretrained(config["model"])
+
     if config["precision"] == "fp16":
         precision = torch.float16
     elif config["precision"] == "bf16":
         precision = torch.bfloat16
     else:
-        precision = torch.float32
+#        precision = torch.float32
+        precision = getattr(model_config, "dtype")
 
     if config["load-in-4bit"]:
         quant_config = BitsAndBytesConfig(
@@ -64,22 +68,34 @@ if __name__ == "__main__":
 
     if config["deccp"]:
         deccp_list = load_dataset("augmxnt/deccp", split="censored")
-        harmful_list += deccp_list["text"] # type: ignore
+        harmful_list += deccp_list["text"]
 
     if isinstance(config["num-harmful"], int) and config["num-harmful"] > 0:
         harmful_list = random.sample(harmful_list, config["num-harmful"])
     if isinstance(config["num-harmless"], int) and config["num-harmless"] > 0:
         harmless_list = random.sample(harmless_list, config["num-harmless"])
 
-    model = AutoModelForCausalLM.from_pretrained(
-        config["model"],
-        trust_remote_code=True,
-        dtype=precision,
-        low_cpu_mem_usage=True,
-        device_map=config["device"],
-        quantization_config=quant_config,
-        attn_implementation="flash_attention_2" if config["flash-attn"] else None,
-    )
+    if hasattr(model_config, "quantization_config"):
+        model = AutoModelForCausalLM.from_pretrained(
+            config["model"],
+#            trust_remote_code=True,
+#            dtype=precision,
+            dtype=getattr(model_config, "dtype"),
+            device_map=config["device"],
+            attn_implementation="flash_attention_2" if config["flash-attn"] else None,
+    #        attn_implementation="sdpa",
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            config["model"],
+#            trust_remote_code=True,
+            dtype=precision,
+            low_cpu_mem_usage=True,
+            device_map=config["device"],
+            quantization_config=quant_config,
+            attn_implementation="flash_attention_2" if config["flash-attn"] else None,
+    #        attn_implementation="sdpa",
+        )
     model.requires_grad_(False)
 
     if config["skip-begin"] + config["skip-end"] >= len(model.model.layers):
@@ -89,7 +105,7 @@ if __name__ == "__main__":
         config["model"], trust_remote_code=True, device_map=config["device"]
     )
 
-    layer_idx = int(len(model.model.layers) * config["layer-fraction"])
+    layer_idx = int((len(model.model.layers)-1) * config["layer-fraction"])
 
     results = {}
     if isinstance(config["input-refusal"], str):
@@ -101,27 +117,35 @@ if __name__ == "__main__":
             model, tokenizer, harmful_list, harmless_list, layer_idx,
             config["batch-size"], config["sweep"]
         )
-    refusal_dir = results["refusal_dir"]
-    bias_term = results["bias_term"]
+    #refusal_dir = results["refusal_dir"]
+    refusal_dir = results[f'refuse_{layer_idx}']
+    #bias_term = results["bias_term"]
 
     if isinstance(config["output-refusal"], str):
         print(f"Saving refusal information to {config['output-refusal']}...")
         torch.save(results, config["output-refusal"])
 
-    if not isinstance(config["output"], str):
+#    if not isinstance(config["output"], str):
+    if config["output"] is None:
         sys.exit(0)
 
-    print("Applying refusal tensor...")
+    print("Ablating refusal direction...")
 
-    if config["load-in-4bit"] or config["load-in-8bit"] or isinstance(config["input-refusal"]:
-        print("Reloading model with bf16 precision...")
+    model_config = AutoConfig.from_pretrained(config["model"])
+    if hasattr(model_config, "quantization_config"):
+        print("Ablation of quantized models is unsupported.")
+        sys.exit(0)
+
+    if config["load-in-4bit"] or config["load-in-8bit"] or isinstance(config["input-refusal"], str):
+        precision = getattr(model_config, "dtype")
+        print("Reloading model with",precision,"precision...")
         del model
         torch.cuda.empty_cache()
         gc.collect()
         model = AutoModelForCausalLM.from_pretrained(
             config["model"],
-            trust_remote_code=True,
-            dtype=torch.bfloat16,
+#            trust_remote_code=True,
+            dtype=precision,
             low_cpu_mem_usage=True,
             device_map="cpu",
         )
