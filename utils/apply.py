@@ -2,6 +2,7 @@ import gc
 import torch
 from tqdm import tqdm
 from transformers import PreTrainedModel
+from utils.sparsify import magnitude_sparsify
 
 
 def modify_tensor(
