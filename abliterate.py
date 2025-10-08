@@ -98,14 +98,16 @@ if __name__ == "__main__":
         )
     model.requires_grad_(False)
 
-    if config["skip-begin"] + config["skip-end"] >= len(model.model.layers):
+    num_layers = len(model.model.layers)
+
+    if config["skip-begin"] + config["skip-end"] >= num_layers:
         raise ValueError("Too many layers to skip.")
 
     tokenizer = AutoTokenizer.from_pretrained(
         config["model"], trust_remote_code=True, device_map=config["device"]
     )
 
-    layer_idx = int((len(model.model.layers)-1) * config["layer-fraction"])
+    layer_idx = int((num_layers - 1) * config["layer-fraction"])
 
     results = {}
     if isinstance(config["input-refusal"], str):
@@ -150,12 +152,6 @@ if __name__ == "__main__":
             device_map="cpu",
         )
 
-    # refusal direction normalization deferred until now
-    if config["sparsify"] > 0.0:
-        print(sparsity_stats(refusal_dir))
-        refusal_dir = magnitude_sparsify(refusal_dir, fraction=config["sparsify"])
-        print(sparsity_stats(refusal_dir))
-
     model = apply_abliteration(
         model,
         refusal_dir,
@@ -163,6 +159,7 @@ if __name__ == "__main__":
         config["skip-begin"],
         config["skip-end"],
         config["scale-factor"],
+        config["sparsify"],
     )
     print(f"Saving abliterated model to {config['output']}...")
     model.save_pretrained(config["output"])
