@@ -59,9 +59,6 @@ def modify_tensor_refactored(
 
     return torch.nn.Parameter(tensor_modified)
 
-
-
-
 def modify_tensor_improved(
     tensor_data: torch.Tensor, refusal_dir: torch.Tensor, scale_factor: float = 1.0
 ) -> torch.nn.Parameter:
@@ -92,7 +89,7 @@ def modify_tensor_improved(
     gc.collect()
     return torch.nn.Parameter(tensor_modified)
 
-
+# more aggressive about returning VRAM allocation
 def modify_tensor_improved2(
     tensor_data: torch.Tensor, refusal_dir: torch.Tensor, scale_factor: float = 1.0,
 ) -> torch.nn.Parameter:
@@ -125,7 +122,6 @@ def modify_tensor_improved2(
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
-#    return torch.nn.Parameter(tensor_modified)
     # Create a fresh tensor with no computation history
     # .detach() ensures no gradient tracking, .clone() breaks all references
     clean_tensor = tensor_modified.detach().clone()
@@ -142,7 +138,14 @@ def apply_abliteration(
     skip_begin_layers: int = 1,
     skip_end_layers: int = 0,
     scale_factor: float = 1.0,
+    sparsify: float = 0.0,
 ) -> PreTrainedModel:
+    # sparsify before normalizing!
+    if sparsify > 0.0:
+        print(sparsity_stats(refusal_dir))
+        refusal_dir = magnitude_sparsify(refusal_dir, fraction=sparsify)
+        print(sparsity_stats(refusal_dir))
+
     refusal_dir = torch.nn.functional.normalize(refusal_dir, dim=-1)
     lm_model = model.model
     assert hasattr(
