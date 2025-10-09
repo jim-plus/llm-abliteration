@@ -107,7 +107,7 @@ def welford_gpu_batched(
     return mean.to("cpu")
 
 def welford_gpu_batched_multilayer(
-    tokens: list[torch.Tensor],
+    formatted_prompts: list[str],
     desc: str,
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
@@ -118,38 +118,25 @@ def welford_gpu_batched_multilayer(
     """Returns dict mapping layer_idx -> mean direction"""
 
     vocab_size = model.config.vocab_size
-    total_probabilities = torch.zeros(vocab_size).to(model.device)
-    total_prompts_processed = 0
+#    total_probabilities = torch.zeros(vocab_size).to(model.device)
+#    total_prompts_processed = 0
 
     means = {layer_idx: None for layer_idx in layer_indices}
     counts = {layer_idx: 0 for layer_idx in layer_indices}
 
-    for i in tqdm(range(0, len(tokens), batch_size), desc=desc):
-        batch = tokens[i:i+batch_size]
-        max_len = max(t.size(1) for t in batch)
+    for i in tqdm(range(0, len(formatted_prompts), batch_size), desc=desc):
+        batch_prompts = formatted_prompts[i:i+batch_size]
 
-        padded_batch = []
-        attention_masks = []
+        tokenizer.pad_token = tokenizer.eos_token
 
-        for t in batch:
-            pad_len = max_len - t.size(1)
-            if pad_len > 0:
-                padded = torch.nn.functional.pad(
-                    t, (0, pad_len), value=tokenizer.pad_token_id
-                )
-                mask = torch.cat([
-                    torch.ones_like(t),
-                    torch.zeros(t.size(0), pad_len, dtype=torch.long)
-                ], dim=1)
-            else:
-                padded = t
-                mask = torch.ones_like(t, dtype=torch.long)
+        batch_encoding = tokenizer(
+            batch_prompts,
+            padding=True,
+            return_tensors="pt",
+        )
 
-            padded_batch.append(padded)
-            attention_masks.append(mask)
-
-        batch_input = torch.cat(padded_batch, dim=0).to(model.device)
-        batch_mask = torch.cat(attention_masks, dim=0).to(model.device)
+        batch_input = batch_encoding['input_ids'].to(model.device)
+        batch_mask = batch_encoding['attention_mask'].to(model.device)
 
         raw_output = model.generate(
             batch_input,
@@ -161,14 +148,15 @@ def welford_gpu_batched_multilayer(
             pad_token_id=tokenizer.eos_token_id,
         )
 
-        del batch_mask
+#        total_prompts_processed += len(batch_input)
+        del batch_input, batch_mask
         hidden_states = raw_output.hidden_states[0]
 #        logits = raw_output.scores[0]
-#        del raw_output
+        del raw_output
 #        probabilities = torch.nn.functional.softmax(logits, dim=-1)
 #        del logits
 #        total_probabilities += torch.sum(probabilities, dim=0)
-#        total_prompts_processed += len(batch)
+#        del probabilities
 
         # Process all layers at once
         for layer_idx in layer_indices:
@@ -186,15 +174,14 @@ def welford_gpu_batched_multilayer(
             counts[layer_idx] = total_count
             del current_hidden
 
-#        del gpu_output, batch_input
-        del batch_input
+        del hidden_states
+
         torch.cuda.empty_cache()
 
     return_dict = {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
 #    avg_probabilities = total_probabilities / total_prompts_processed
 #    return_dict["avg_probabilities"] = avg_probabilities.to("cpu")
     return return_dict
-    #return {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
 
 def analyze_refusal_sparsity(harmful_mean, harmless_mean):
     """Understand which dimensions matter for refusal"""
@@ -290,6 +277,19 @@ def analyze_direction(
     print(f"Signal-to-noise ratio:   {snr:.4f}")
     print(f"Signal quality:          {quality:.4f}")
 
+def format_chats(
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    prompt_list: list[str]
+):
+    result_formatted = [
+        tokenizer.apply_chat_template(
+            conversation=[{"role": "user", "content": inst}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        for inst in prompt_list
+    ]
+    return result_formatted
 
 def compute_refusals(
     model: PreTrainedModel,
@@ -301,104 +301,9 @@ def compute_refusals(
     sweep: bool = False,
 ) -> torch.Tensor:
 
-    def welford(tokens: list[torch.Tensor], desc: str) -> torch.Tensor:
-        mean = None
-        count = 0
-        for token in tqdm(tokens, desc=desc):
-            attention_mask = torch.ones_like(token, dtype=torch.long, device=model.device)
-            raw_output = model.generate(
-                token.to(model.device),
-                attention_mask=attention_mask,
-                max_new_tokens=1,
-                return_dict_in_generate=True,
-                output_hidden_states=True,
-                # use_cache=False,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-            del attention_mask
-            cpu_output = extract_hidden_states(raw_output)
-            current_hidden = cpu_output["hidden_states"][0][layer_idx][:, pos, :]
-            assert isinstance(current_hidden, torch.Tensor)
-            # current_hidden.detach()
-
-            batch_size = current_hidden.size(dim=0)
-            total_count = count + batch_size
-
-            if mean is None:
-                mean = current_hidden.mean(dim=0)
-            else:
-                delta = current_hidden - mean.squeeze(0)
-                # mean = mean + (delta.sum(dim=0)) / total_count
-                mean.add_(delta.sum(dim=0) / total_count)
-            count = total_count
-
-            del raw_output, cpu_output, current_hidden
-            torch.cuda.empty_cache()
-        assert mean is not None
-        return mean
-
-    def welford_gpu(tokens: list[torch.Tensor], desc: str) -> torch.Tensor:
-        mean = None
-        count = 0
-        for token in tqdm(tokens, desc=desc):
-            attention_mask = torch.ones_like(token, dtype=torch.long, device=model.device)
-            raw_output = model.generate(
-                token.to(model.device),
-                attention_mask=attention_mask,
-                max_new_tokens=1,
-                return_dict_in_generate=True,
-                output_hidden_states=True,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-            del attention_mask
-            gpu_output = extract_hidden_states_gpu(raw_output)
-            del raw_output
-            current_hidden = gpu_output["hidden_states"][0][layer_idx][:, pos, :]
-            del gpu_output
-
-            assert isinstance(current_hidden, torch.Tensor)
-
-            batch_size = current_hidden.size(dim=0)
-            total_count = count + batch_size
-
-            if mean is None:
-                mean = current_hidden.mean(dim=0)
-            else:
-                delta = current_hidden - mean.squeeze(0)
-                # Use the more efficient in-place add operation
-                mean.add_(delta.sum(dim=0) / total_count)
-
-            count = total_count
-
-            del current_hidden
-            torch.cuda.empty_cache()
-
-        assert mean is not None
-        # Only move the final result to the CPU
-        return mean.to("cpu")
-
-    print("Tokenizing inputs")
-    harmful_tokens = [
-        tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": inst}],
-            add_generation_prompt=True,
-            return_tensors="pt",
-        )
-        for inst in harmful_list
-    ]
-    torch.cuda.empty_cache()
-    gc.collect()
-
-    harmless_tokens = [
-        tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": inst}],
-            add_generation_prompt=True,
-            return_tensors="pt",
-        )
-        for inst in harmless_list
-    ]
-    torch.cuda.empty_cache()
-    gc.collect()
+    print("Formatting inputs")
+    harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list)
+    harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list)
 
     num_layers = len(model.model.layers)
     if layer_idx == -1:
@@ -410,17 +315,16 @@ def compute_refusals(
     if (sweep):
         focus_layers = range(num_layers)
 
-    harmful_means = welford_gpu_batched_multilayer(harmful_tokens, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
+    harmful_means = welford_gpu_batched_multilayer(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
     torch.cuda.empty_cache()
     gc.collect()
-    harmless_means = welford_gpu_batched_multilayer(harmless_tokens, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
+    harmless_means = welford_gpu_batched_multilayer(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
 
     results = {}
     # track number of layers in model
     results["layers"] = num_layers
 
     # compute sweep, because we have all the information we need
-#    prior = None
     for layer in focus_layers:
         print("Measured layer",layer)
         harmful_mean = harmful_means[layer]
@@ -430,12 +334,6 @@ def compute_refusals(
 #        analyze_direction(harmful_mean, harmless_mean, layer)
         refusal_dir = harmful_mean - harmless_mean
         results[f'refuse_{layer}'] = refusal_dir
-#        if prior is not None:
-#            cos_sim = torch.nn.functional.cosine_similarity(
-#                prior, refusal_dir, dim=0
-#            ).item()
-#            print(f"Prior refusal cos.sim.:  {cos_sim:.4f}")
-#        prior = refusal_dir
 
     # track target layer
     results["layer_idx"] = layer_idx
