@@ -1,9 +1,14 @@
 import gc
 import torch
+import logging
+import warnings
 from tqdm import tqdm
 from transformers.modeling_utils import PreTrainedModel
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
+
+# Suppress false positive warning
+logging.getLogger('transformers').setLevel(logging.ERROR)
 
 def welford_gpu_batched_multilayer(
     formatted_prompts: list[str],
@@ -16,7 +21,10 @@ def welford_gpu_batched_multilayer(
 ) -> dict[int, torch.Tensor]:
     """Returns dict mapping layer_idx -> mean direction"""
 
-    vocab_size = model.config.vocab_size
+    text_config = model.config
+    if hasattr(text_config,"text_config"):
+        text_config = text_config.text_config
+    vocab_size = text_config.vocab_size
 #    total_probabilities = torch.zeros(vocab_size).to(model.device)
 #    total_prompts_processed = 0
 
@@ -27,18 +35,19 @@ def welford_gpu_batched_multilayer(
         batch_prompts = formatted_prompts[i:i+batch_size]
 
         tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = 'left'
 
         batch_encoding = tokenizer(
             batch_prompts,
             padding=True,
+            padding_side='left',
             return_tensors="pt",
         )
-
         batch_input = batch_encoding['input_ids'].to(model.device)
         batch_mask = batch_encoding['attention_mask'].to(model.device)
 
         raw_output = model.generate(
-            batch_input,
+        batch_input,
             attention_mask=batch_mask,
             max_new_tokens=1,
             return_dict_in_generate=True,
@@ -46,7 +55,7 @@ def welford_gpu_batched_multilayer(
 #            output_scores=True,
             pad_token_id=tokenizer.eos_token_id,
         )
-
+#        print(f"Attention mask: {batch_mask[0]}")
 #        total_prompts_processed += len(batch_input)
         del batch_input, batch_mask
         hidden_states = raw_output.hidden_states[0]
@@ -200,6 +209,8 @@ def compute_refusals(
     sweep: bool = False,
 ) -> torch.Tensor:
     layer_base = model.model
+    if hasattr(layer_base,"language_model"):
+        layer_base = layer_base.language_model
     num_layers = len(layer_base.layers)
     if layer_idx == -1:
         layer_idx = int((num_layers - 1) * 0.6) # default guesstimate
