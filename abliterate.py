@@ -4,9 +4,9 @@ import torch
 import random
 from datasets import load_dataset
 from transformers import AutoConfig
-from transformers.models.auto.tokenization_auto import AutoTokenizer
-from transformers.models.auto.modeling_auto import AutoModelForCausalLM
-from transformers.utils.quantization_config import BitsAndBytesConfig
+from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM
+from transformers import BitsAndBytesConfig
 from utils.data import load_data
 from utils.compute import compute_refusals
 from utils.apply import apply_abliteration
@@ -39,7 +39,6 @@ if __name__ == "__main__":
     elif config["precision"] == "bf16":
         precision = torch.bfloat16
     else:
-#        precision = torch.float32
         precision = getattr(model_config, "dtype")
 
     if config["load-in-4bit"]:
@@ -79,8 +78,7 @@ if __name__ == "__main__":
         model = AutoModelForCausalLM.from_pretrained(
             config["model"],
 #            trust_remote_code=True,
-#            dtype=precision,
-            dtype=getattr(model_config, "dtype"),
+            dtype=precision,
             device_map=config["device"],
             attn_implementation="flash_attention_2" if config["flash-attn"] else None,
     #        attn_implementation="sdpa",
@@ -98,13 +96,19 @@ if __name__ == "__main__":
         )
     model.requires_grad_(False)
 
-    num_layers = len(model.model.layers)
+    layer_base = model.model
+    if hasattr(layer_base,"language_model"):
+        layer_base = layer_base.language_model
+    num_layers = len(layer_base.layers)
 
     if config["skip-begin"] + config["skip-end"] >= num_layers:
         raise ValueError("Too many layers to skip.")
 
     tokenizer = AutoTokenizer.from_pretrained(
-        config["model"], trust_remote_code=True, device_map=config["device"]
+        config["model"],
+#        trust_remote_code=True,
+        device_map=config["device"],
+        padding=True,
     )
 
     layer_idx = int((num_layers - 1) * config["layer-fraction"])
