@@ -309,11 +309,11 @@ def compute_refusals(
         focus_layers = range(num_layers)
 
     harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list)
-    harmful_means = welford_kahan_gpu_batched_multilayer(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
+    harmful_means = welford_neumaier_gpu_batched_multilayer(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
     torch.cuda.empty_cache()
     del harmful_formatted
     harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list)
-    harmless_means = welford_kahan_gpu_batched_multilayer(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
+    harmless_means = welford_neumaier_gpu_batched_multilayer(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
     del harmless_formatted
 
     results = {}
