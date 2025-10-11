@@ -34,6 +34,15 @@ if __name__ == "__main__":
 
     model_config = AutoConfig.from_pretrained(config["model"])
 
+    if hasattr(model_config,"dtype"):
+        native_precision = getattr(model_config,"dtype")
+    elif hasattr(model_config,"torch_dtype"):
+        native_precision = getattr(model_config,"torch_dtype")
+
+    has_vision = False
+    if hasattr(model_config,"vision_config"):
+        has_vision = True
+
     if config["precision"] == "fp16":
         precision = torch.float16
     elif config["precision"] == "bf16":

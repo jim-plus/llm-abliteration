@@ -28,7 +28,10 @@ print("Model:",model_name)
 
 print("Loading model configuration")
 model_config = AutoConfig.from_pretrained(model_name)
-precision = getattr(model_config, "dtype")
+if hasattr(model_config,"dtype"):
+    precision = getattr(model_config,"dtype")
+elif hasattr(model_config,"torch_dtype"):
+    precision = getattr(model_config,"torch_dtype")
 print("Loading model with",precision,"precision")
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
