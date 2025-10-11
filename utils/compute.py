@@ -91,7 +91,7 @@ def welford_gpu_batched_multilayer(
 #    return_dict["avg_probabilities"] = avg_probabilities.to("cpu")
     return return_dict
 
-def welford_kahan_gpu_batched_multilayer(
+def welford_neumaier_gpu_batched_multilayer(
     formatted_prompts: list[str],
     desc: str,
     model: PreTrainedModel,
@@ -100,7 +100,7 @@ def welford_kahan_gpu_batched_multilayer(
     pos: int = -1,
     batch_size: int = 1
 ) -> dict[int, torch.Tensor]:
-    """Returns dict mapping layer_idx -> mean direction using Welford + Kahan summation"""
+    """Returns dict mapping layer_idx -> mean direction using Welford + Neumaier summation"""
 
     text_config = model.config
     if hasattr(text_config, "text_config"):
@@ -139,7 +139,7 @@ def welford_kahan_gpu_batched_multilayer(
         hidden_states = raw_output.hidden_states[0]
         del raw_output
 
-        # Process layers with Kahan summation
+        # Process layers with Neumaier summation
         for layer_idx in layer_indices:
             current_hidden = hidden_states[layer_idx][:, pos, :]
 
@@ -153,10 +153,16 @@ def welford_kahan_gpu_batched_multilayer(
                 delta = current_hidden - means[layer_idx]
                 update = delta.sum(dim=0) / total_count
                 
-                # Kahan summation for numerical stability
-                y = update - mean_compensations[layer_idx]
-                t = means[layer_idx] + y
-                mean_compensations[layer_idx] = (t - means[layer_idx]) - y
+                # Neumaier summation for enhanced numerical stability
+                t = means[layer_idx] + update
+                # If means[layer_idx] is larger in magnitude, use Kahan-style correction
+                # Otherwise, use Neumaier's correction which is more stable
+                correction = torch.where(
+                    torch.abs(means[layer_idx]) >= torch.abs(update),
+                    (means[layer_idx] - t) + update,  # Kahan correction
+                    (update - t) + means[layer_idx]   # Neumaier correction
+                )
+                mean_compensations[layer_idx] += correction
                 means[layer_idx] = t
 
             counts[layer_idx] = total_count
@@ -165,7 +171,11 @@ def welford_kahan_gpu_batched_multilayer(
         del hidden_states
         torch.cuda.empty_cache()
 
-    return_dict = {layer_idx: mean.to("cpu") for layer_idx, mean in means.items()}
+    # Apply final compensation
+    return_dict = {
+        layer_idx: (mean + mean_compensations[layer_idx]).to("cpu") 
+        for layer_idx, mean in means.items()
+    }
     return return_dict
 
 def analyze_refusal_sparsity(harmful_mean, harmless_mean):
