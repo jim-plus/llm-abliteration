@@ -49,7 +49,10 @@ def ablate_by_layers(
     measures: dict,
     marching_orders: list
 ) -> PreTrainedModel:
-    num_layers = len(model.model.layers)
+    layer_base = model.model
+    if hasattr(layer_base,"language_model"):
+        layer_base = layer_base.language_model
+    num_layers = len(layer_base.layers)
     for layer, measurement, scale, sparsity in marching_orders:
         print(layer, measurement, scale, sparsity)
         print(f"Applying measurement from layer {measurement} of [0..{num_layers-1}] to layer {layer}")
@@ -57,14 +60,14 @@ def ablate_by_layers(
         if sparsity > 0.0:
             refusal_dir = magnitude_sparsify(refusal_dir, fraction=sparsity)
         refusal_dir = torch.nn.functional.normalize(refusal_dir, dim=-1)
-        model.model.layers[layer].self_attn.o_proj.weight = modify_tensor(
-            model.model.layers[layer].self_attn.o_proj.weight.data,
+        layer_base.layers[layer].self_attn.o_proj.weight = modify_tensor(
+            layer_base.layers[layer].self_attn.o_proj.weight.data,
             refusal_dir,
             scale,
         )
         gc.collect()
-        model.model.layers[layer].mlp.down_proj.weight = modify_tensor(
-            model.model.layers[layer].mlp.down_proj.weight.data,
+        layer_base.layers[layer].mlp.down_proj.weight = modify_tensor(
+            layer_base.layers[layer].mlp.down_proj.weight.data,
             refusal_dir,
             scale,
         )

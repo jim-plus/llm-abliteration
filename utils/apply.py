@@ -138,42 +138,40 @@ def apply_abliteration(
     layer_target: int,
     skip_begin_layers: int = 1,
     skip_end_layers: int = 0,
-    scale_factor: float = 1.0,
-    sparsify: float = 0.0,
+    scaling: float = 1.0,
+    sparsity: float = 0.0,
 ) -> PreTrainedModel:
     # sparsify before normalizing!
-    if sparsify > 0.0:
+    if sparsity > 0.0:
         print(sparsity_stats(refusal_dir))
-        refusal_dir = magnitude_sparsify(refusal_dir, fraction=sparsify)
+        refusal_dir = magnitude_sparsify(refusal_dir, fraction=sparsity)
         print(sparsity_stats(refusal_dir))
 
     refusal_dir = torch.nn.functional.normalize(refusal_dir, dim=-1)
-    lm_model = model.model
+    layer_base = model.model
+    if hasattr(layer_base,"language_model"):
+        layer_base = layer_base.language_model
     assert hasattr(
-        lm_model, "layers"
+        layer_base, "layers"
     ), "The model does not have the expected structure"
-    num_layers = len(lm_model.layers)
+    num_layers = len(layer_base.layers)
     print("Applying measurement from layer",layer_target,"of [ 0 ..",(num_layers-1),"]")
     print("to layers",skip_begin_layers,"through",(num_layers - 1) - skip_end_layers)
     for layer_idx in tqdm(
         range(skip_begin_layers, num_layers - skip_end_layers),
         desc="Applying abliteration",
     ):
-        subscale = scale_factor
-# adding linear scaling prior to target intervention layer - FAILS! negative result
-#        if (layer_idx < layer_target):
-#            subscale = (layer_idx - skip_begin_layers) / (layer_target - skip_begin_layers)
-        lm_model.layers[layer_idx].self_attn.o_proj.weight = modify_tensor_improved2(
-            lm_model.layers[layer_idx].self_attn.o_proj.weight.data,
+        layer_base.layers[layer_idx].self_attn.o_proj.weight = modify_tensor_improved2(
+            layer_base.layers[layer_idx].self_attn.o_proj.weight.data,
             refusal_dir,
-            subscale,
+            scaling,
         )
         torch.cuda.empty_cache()
         gc.collect()
-        lm_model.layers[layer_idx].mlp.down_proj.weight = modify_tensor_improved2(
-            lm_model.layers[layer_idx].mlp.down_proj.weight.data,
+        layer_base.layers[layer_idx].mlp.down_proj.weight = modify_tensor_improved2(
+            layer_base.layers[layer_idx].mlp.down_proj.weight.data,
             refusal_dir,
-            subscale,
+            scaling,
         )
         torch.cuda.empty_cache()
         gc.collect()
