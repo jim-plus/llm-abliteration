@@ -53,7 +53,7 @@ for layer in range(layers):
 
     # 1. Cosine similarity
     cos_sim = torch.nn.functional.cosine_similarity(
-        harmful_mean, harmless_mean, dim=0
+        harmful_mean.float(), harmless_mean.float(), dim=0
     ).item()
     cosine_similarities.append(cos_sim)
 
