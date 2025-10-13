@@ -91,6 +91,81 @@ def welford_gpu_batched_multilayer(
 #    return_dict["avg_probabilities"] = avg_probabilities.to("cpu")
     return return_dict
 
+def welford_gpu_batched_multilayer_float32(
+    formatted_prompts: list[str],
+    desc: str,
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    layer_indices: list[int],
+    pos: int = -1,
+    batch_size: int = 1
+) -> dict[int, torch.Tensor]:
+    text_config = model.config
+    if hasattr(text_config, "text_config"):
+        text_config = text_config.text_config
+    vocab_size = text_config.vocab_size
+
+    means = {layer_idx: None for layer_idx in layer_indices}
+    counts = {layer_idx: 0 for layer_idx in layer_indices}
+    dtype = model.dtype
+
+    for i in tqdm(range(0, len(formatted_prompts), batch_size), desc=desc):
+        batch_prompts = formatted_prompts[i:i+batch_size]
+
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = 'left'
+
+        batch_encoding = tokenizer(
+            batch_prompts,
+            padding=True,
+            padding_side='left',
+            return_tensors="pt",
+        )
+        batch_input = batch_encoding['input_ids'].to(model.device)
+        batch_mask = batch_encoding['attention_mask'].to(model.device)
+
+        raw_output = model.generate(
+            batch_input,
+            attention_mask=batch_mask,
+            max_new_tokens=1,
+            return_dict_in_generate=True,
+            output_hidden_states=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+        
+        del batch_input, batch_mask
+        hidden_states = raw_output.hidden_states[0]
+        del raw_output
+
+        # Process layers with Welford in float32
+        for layer_idx in layer_indices:
+            # Cast to float32 for accumulation
+            current_hidden = hidden_states[layer_idx][:, pos, :].float()
+
+            batch_size_actual = current_hidden.size(dim=0)
+            total_count = counts[layer_idx] + batch_size_actual
+
+            if means[layer_idx] is None:
+                # Initialize mean in float32
+                means[layer_idx] = current_hidden.mean(dim=0)
+            else:
+                # All operations in float32 (means[layer_idx] is already float32)
+                delta = current_hidden - means[layer_idx]
+                means[layer_idx] += delta.sum(dim=0) / total_count
+
+            counts[layer_idx] = total_count
+            del current_hidden
+
+        del hidden_states
+        torch.cuda.empty_cache()
+
+    # Cast back to model dtype and move to CPU
+    return_dict = {
+        layer_idx: mean.to(dtype=dtype, device="cpu") 
+        for layer_idx, mean in means.items()
+    }
+    return return_dict
+
 def welford_neumaier_gpu_batched_multilayer(
     formatted_prompts: list[str],
     desc: str,
@@ -280,6 +355,7 @@ def format_chats(
         tokenizer.apply_chat_template(
             conversation=[{"role": "user", "content": inst}],
             add_generation_prompt=True,
+            add_special_tokens=False,
             tokenize=False,
         )
         for inst in prompt_list
@@ -295,6 +371,7 @@ def compute_refusals(
     inference_batch_size: int = 32,
     sweep: bool = False,
 ) -> torch.Tensor:
+    dtype = model.dtype
     layer_base = model.model
     if hasattr(layer_base,"language_model"):
         layer_base = layer_base.language_model
@@ -309,11 +386,11 @@ def compute_refusals(
         focus_layers = range(num_layers)
 
     harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list)
-    harmful_means = welford_neumaier_gpu_batched_multilayer(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
+    harmful_means = welford_gpu_batched_multilayer_float32(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
     torch.cuda.empty_cache()
     del harmful_formatted
     harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list)
-    harmless_means = welford_neumaier_gpu_batched_multilayer(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
+    harmless_means = welford_gpu_batched_multilayer_float32(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size)
     del harmless_formatted
 
     results = {}
@@ -324,8 +401,9 @@ def compute_refusals(
         results[f'harmful_{layer}'] = harmful_mean
         harmless_mean = harmless_means[layer]
         results[f'harmless_{layer}'] = harmless_mean
-        refusal_dir = harmful_mean - harmless_mean
-        results[f'refuse_{layer}'] = refusal_dir
+        # calculate refusal direction in 32-bit float before casting back
+        refusal_dir = harmful_mean.float() - harmless_mean.float()
+        results[f'refuse_{layer}'] = refusal_dir.to(dtype)
 
     # track target layer
     results["layer_idx"] = layer_idx
