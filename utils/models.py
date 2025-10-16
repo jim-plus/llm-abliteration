@@ -1,7 +1,7 @@
-def is_gemma_family(model_type: str) -> bool:
+def has_tied_weights(model_type: str) -> bool:
     """
-    Checks if a given Hugging Face transformers model_type string
-    belongs to the Gemma family of models.
+    Checks if a given Hugging Face transformers model_type string employs
+    tied weights. The Gemma family of models is currently detected.
 
     The model type is typically obtained from the `config.model_type`
     attribute after loading a model configuration (e.g., using AutoConfig).
@@ -10,7 +10,8 @@ def is_gemma_family(model_type: str) -> bool:
         model_type (str): The model type string (e.g., 'gemma', 'gemma2', 'llama').
 
     Returns:
-        bool: True if the model is part of the Gemma lineage, False otherwise.
+        bool: True if the model is of a lineage which employs tied weights,
+        False otherwise.
     """
     if not isinstance(model_type, str):
         return False
