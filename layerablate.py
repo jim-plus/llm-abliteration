@@ -5,6 +5,7 @@ from transformers import AutoConfig
 from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from utils.layerapply import ablate_by_layers
+from utils.models import has_tied_weights
 
 parser = argparse.ArgumentParser(
     description="A fine-grained ablation script that takes a mandatory YAML file path as an argument."
@@ -28,6 +29,7 @@ print("Model:",model_name)
 
 print("Loading model configuration")
 model_config = AutoConfig.from_pretrained(model_name)
+family = getattr(model_config,"model_type")
 if hasattr(model_config,"dtype"):
     precision = getattr(model_config,"dtype")
 elif hasattr(model_config,"torch_dtype"):
@@ -40,6 +42,8 @@ model = AutoModelForCausalLM.from_pretrained(
     low_cpu_mem_usage=True,
     device_map="cpu",
 )
+if has_tied_weights(family):
+    model.tie_weights()
 
 print("Loading tokenizer")
 tokenizer = AutoTokenizer.from_pretrained(

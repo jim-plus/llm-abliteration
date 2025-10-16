@@ -12,6 +12,7 @@ from utils.compute import compute_refusals
 from utils.apply import apply_abliteration
 from utils.arguments import parser, generate_config
 from utils.sparsify import magnitude_sparsify, sparsity_stats
+from utils.models import has_tied_weights
 
 
 if __name__ == "__main__":
@@ -33,6 +34,7 @@ if __name__ == "__main__":
     torch.set_grad_enabled(False)
 
     model_config = AutoConfig.from_pretrained(config["model"])
+    family = getattr(model_config,"model_type")
 
     if hasattr(model_config,"dtype"):
         native_precision = getattr(model_config,"dtype")
@@ -93,6 +95,7 @@ if __name__ == "__main__":
     #        attn_implementation="sdpa",
         )
     else:
+        # AutoModelForImageTextToText for Mistral Small 3.2 24B
         model = AutoModelForCausalLM.from_pretrained(
             config["model"],
 #            trust_remote_code=True,
@@ -104,6 +107,8 @@ if __name__ == "__main__":
     #        attn_implementation="sdpa",
         )
     model.requires_grad_(False)
+    if has_tied_weights(family):
+        model.tie_weights()
 
     layer_base = model.model
     if hasattr(layer_base,"language_model"):
@@ -119,6 +124,7 @@ if __name__ == "__main__":
         device_map=config["device"],
         padding=True,
     )
+# Mistral Small 3.2 24B may be missing tokenizer.chat_template
 
     layer_idx = int((num_layers - 1) * config["layer-fraction"])
 
@@ -164,6 +170,8 @@ if __name__ == "__main__":
             low_cpu_mem_usage=True,
             device_map="cpu",
         )
+        if has_tied_weights(family):
+            model.tie_weights()
 
     model = apply_abliteration(
         model,
