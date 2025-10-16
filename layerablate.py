@@ -42,6 +42,7 @@ model = AutoModelForCausalLM.from_pretrained(
     low_cpu_mem_usage=True,
     device_map="cpu",
 )
+model.requires_grad_(False)
 if has_tied_weights(family):
     model.tie_weights()
 
