@@ -4,14 +4,15 @@ import torch
 import random
 from datasets import load_dataset
 from transformers import AutoConfig
-from transformers import AutoTokenizer
 from transformers import AutoModelForCausalLM
+from transformers import AutoModelForImageTextToText
+from transformers import AutoTokenizer
 from transformers import BitsAndBytesConfig
 from utils.data import load_data
 from utils.compute import compute_refusals
 from utils.apply import apply_abliteration
 from utils.arguments import parser, generate_config
-from utils.sparsify import magnitude_sparsify, sparsity_stats
+#from utils.sparsify import magnitude_sparsify, sparsity_stats
 from utils.models import has_tied_weights
 
 
@@ -44,6 +45,9 @@ if __name__ == "__main__":
     has_vision = False
     if hasattr(model_config,"vision_config"):
         has_vision = True
+    model_loader = AutoModelForCausalLM
+    if (has_vision):
+        model_loader = AutoModelForImageTextToText
 
     if config["precision"] == "fp16":
         precision = torch.float16
@@ -95,8 +99,7 @@ if __name__ == "__main__":
     #        attn_implementation="sdpa",
         )
     else:
-        # AutoModelForImageTextToText for Mistral Small 3.2 24B
-        model = AutoModelForCausalLM.from_pretrained(
+        model = model_loader.from_pretrained(
             config["model"],
 #            trust_remote_code=True,
             dtype=precision,
@@ -163,7 +166,7 @@ if __name__ == "__main__":
         del model
         torch.cuda.empty_cache()
         gc.collect()
-        model = AutoModelForCausalLM.from_pretrained(
+        model = model_loader.from_pretrained(
             config["model"],
 #            trust_remote_code=True,
             dtype=precision,

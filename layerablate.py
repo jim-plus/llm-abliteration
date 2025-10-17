@@ -2,8 +2,9 @@ import argparse
 import torch
 import yaml
 from transformers import AutoConfig
-from transformers.models.auto.modeling_auto import AutoModelForCausalLM
-from transformers.models.auto.tokenization_auto import AutoTokenizer
+from transformers import AutoModelForCausalLM
+from transformers import AutoModelForImageTextToText
+from transformers import AutoTokenizer
 from utils.layerapply import ablate_by_layers
 from utils.models import has_tied_weights
 
@@ -35,7 +36,13 @@ if hasattr(model_config,"dtype"):
 elif hasattr(model_config,"torch_dtype"):
     precision = getattr(model_config,"torch_dtype")
 print("Loading model with",precision,"precision")
-model = AutoModelForCausalLM.from_pretrained(
+has_vision = False
+if hasattr(model_config,"vision_config"):
+    has_vision = True
+model_loader = AutoModelForCausalLM
+if (has_vision):
+    model_loader = AutoModelForImageTextToText
+model = model_loader.from_pretrained(
     model_name,
 #    trust_remote_code=True,
     dtype=precision,
