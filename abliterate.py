@@ -139,7 +139,7 @@ if __name__ == "__main__":
         print("Computing refusal information...")
         results = compute_refusals(
             model, tokenizer, harmful_list, harmless_list, layer_idx,
-            config["batch-size"], config["sweep"]
+            config["batch-size"], config["sweep"], config["clip"]
         )
     #refusal_dir = results["refusal_dir"]
     refusal_dir = results[f'refuse_{layer_idx}']
