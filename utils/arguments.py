@@ -51,6 +51,12 @@ parser.add_argument(
     help="Fraction of refusal path tensor to sparsify by magnitude (think minP)",
 )
 parser.add_argument(
+    "--clip",
+    type=float,
+    default=1.0,
+    help="Fraction of prompt activation to clip by magnitude",
+)
+parser.add_argument(
     "--layer-fraction",
     type=float,
     default=1.0,
@@ -146,6 +152,7 @@ def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
     config.setdefault("skip-end", args.skip_end)
     config.setdefault("layer-fraction", args.layer_fraction)
     config.setdefault("sparsify", args.sparsify)
+    config.setdefault("clip", args.clip)
     config.setdefault("scale-factor", args.scale_factor)
     config.setdefault("flash-attn", args.flash_attn)
     config.setdefault("data-harmful", args.data_harmful)
