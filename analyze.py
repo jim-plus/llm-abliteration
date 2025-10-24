@@ -88,14 +88,6 @@ for layer in range(layers):
     quality = snr * (1 - cos_sim)
     signal_quality_estimates.append(quality)
 
-    # Normalize harmless_mean to avoid numerical issues
-    harmless_normalized = torch.nn.functional.normalize(harmless_mean.float(), dim=0)
-    
-    # Project and subtract (with normalized vector, the denominator is 1)
-    projection_scalar = refusal_dir.float() @ harmless_normalized
-    refined_refusal_dir = refusal_dir.float() - projection_scalar * harmless_normalized
-
-
     print(f"=== Refusal Direction Analysis (Layer {layer}) ===")
     print(f"Cosine similarity:       {cos_sim:.4f}")
     print(f"Harmful mean norm:       {harmful_norm:.4f}")
