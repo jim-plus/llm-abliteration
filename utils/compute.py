@@ -84,7 +84,8 @@ def welford_gpu_batched_multilayer_float32(
 
     # Cast back to model dtype and move to CPU
     return_dict = {
-        layer_idx: mean.to(dtype=dtype, device="cpu") 
+#        layer_idx: mean.to(dtype=dtype, device="cpu") 
+        layer_idx: mean
         for layer_idx, mean in means.items()
     }
     return return_dict
@@ -236,12 +237,20 @@ def compute_refusals(
 
     for layer in tqdm(focus_layers,desc="Compiling layer measurements"):
         harmful_mean = harmful_means[layer]
-        results[f'harmful_{layer}'] = harmful_mean
+        results[f'harmful_{layer}'] = harmful_mean.to(dtype)
         harmless_mean = harmless_means[layer]
-        results[f'harmless_{layer}'] = harmless_mean
-        # calculate refusal direction in 32-bit float before casting back
-        refusal_dir = harmful_mean.float() - harmless_mean.float()
-        results[f'refuse_{layer}'] = refusal_dir.to(dtype)
+        results[f'harmless_{layer}'] = harmless_mean.to(dtype)
+        # calculate refusal direction in 32-bit float to minimize precision error
+        refusal_dir = harmful_mean - harmless_mean
+        # Normalize harmless_mean to avoid numerical issues
+        harmless_normalized = torch.nn.functional.normalize(harmless_mean.float(), dim=0)
+
+        # Project and subtract contribution along harmless direction
+        projection_scalar = refusal_dir @ harmless_normalized
+        refined_refusal_dir = refusal_dir - projection_scalar * harmless_normalized
+
+        # keep in 32-bit float until the final computation
+        results[f'refuse_{layer}'] = refined_refusal_dir
 
     # track target layer
     results["layer_idx"] = layer_idx
