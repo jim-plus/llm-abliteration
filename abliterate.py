@@ -6,6 +6,7 @@ from datasets import load_dataset
 from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import AutoModelForImageTextToText
+from transformers import AutoProcessor
 from transformers import AutoTokenizer
 from transformers import BitsAndBytesConfig
 from utils.data import load_data
@@ -188,3 +189,10 @@ if __name__ == "__main__":
     print(f"Saving abliterated model to {config['output']}...")
     model.save_pretrained(config["output"])
     tokenizer.save_pretrained(config["output"])
+    if (has_vision):
+        processor = AutoProcessor.from_pretrained(
+            model_name,
+            device_map="cpu"
+        )
+        print("Saving processor to",output_dir)
+        processor.save_pretrained(output_dir)
