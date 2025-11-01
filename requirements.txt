@@ -2,6 +2,7 @@ accelerate
 bitsandbytes
 datasets
 huggingface-hub
+matplotlib
 pandas
 torch
 tqdm
