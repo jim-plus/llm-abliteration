@@ -81,7 +81,6 @@ parser.add_argument(
     default=False,
     help="Perform sweep analysis during calibration",
 )
-
 refusals = parser.add_mutually_exclusive_group()
 refusals.add_argument(
     "--input-refusal", "-ir", type=str, default=None, help="Input tensor for refusal"
@@ -89,21 +88,6 @@ refusals.add_argument(
 refusals.add_argument(
     "--output-refusal", "-or", type=str, default=None, help="Output tensor for refusal"
 )
-
-quant = parser.add_mutually_exclusive_group()
-quant.add_argument(
-    "--load-in-4bit",
-    action="store_true",
-    default=False,
-    help="Load model in 4-bit precision using bitsandbytes",
-)
-quant.add_argument(
-    "--load-in-8bit",
-    action="store_true",
-    default=False,
-    help="Load model in 8-bit precision using bitsandbytes",
-)
-
 
 def check_config(config: dict[str, str | int | float | None]) -> None:
     if config["model"] is None:
@@ -142,8 +126,6 @@ def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
     config.setdefault("sweep", args.sweep)
     config.setdefault("input-refusal", args.input_refusal)
     config.setdefault("output-refusal", args.output_refusal)
-    config.setdefault("load-in-4bit", args.load_in_4bit)
-    config.setdefault("load-in-8bit", args.load_in_8bit)
 
     check_config(config)
 
