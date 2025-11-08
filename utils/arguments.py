@@ -83,10 +83,10 @@ parser.add_argument(
 )
 refusals = parser.add_mutually_exclusive_group()
 refusals.add_argument(
-    "--input-refusal", "-ir", type=str, default=None, help="Input tensor for refusal"
+    "--input-refusal", "-ir", type=str, default=None, help="Input measurements for refusal"
 )
 refusals.add_argument(
-    "--output-refusal", "-or", type=str, default=None, help="Output tensor for refusal"
+    "--output-refusal", "-or", type=str, default=None, help="Output measurements for refusal"
 )
 
 def check_config(config: dict[str, str | int | float | None]) -> None:
@@ -96,9 +96,6 @@ def check_config(config: dict[str, str | int | float | None]) -> None:
         raise ValueError("Output model or refusal direction must be specified.")
     if config["input-refusal"] is not None and config["output-refusal"] is not None:
         raise ValueError("Do NOT use input and output refusal simultaneously.")
-    if config["load-in-4bit"] and config["load-in-8bit"]:
-        raise ValueError("Do NOT use 4-bit and 8-bit simultaneously.")
-
 
 def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
     config = {}
