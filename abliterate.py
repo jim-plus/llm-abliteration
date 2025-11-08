@@ -57,7 +57,6 @@ if __name__ == "__main__":
     if hasattr(model_config,"quantization_config"):
         bnb_config = getattr(model_config, "quantization_config")
         if (bnb_config["load_in_4bit"] == True):
-            print("4b")
             quant_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=precision,
