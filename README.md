@@ -61,12 +61,6 @@ python abliterate.py -m meta-llama/Llama-3.2-3B-Instruct -o llama3.2-3b-ablitera
 python compare.py -a meta-llama/Llama-3.2-3B-Instruct -b llama3.2-3b-abliterated
 ```
 
-- Compare in 4-bit precision using bitsandbytes:
-
-```shell
-python compare.py -a meta-llama/Llama-3.2-3B-Instruct -b llama3.2-3b-abliterated --load-in-4bit
-```
-
 > [!NOTE]
 > The measurement process will autodetect 4-bit and 8-bit BitsAndBytes models. However, abliteration needs to be performed on full-weight models. As a temporary workaround, it's recommended to use `--output-refusal` to dump out the refusal data for later processing.
 > The `--input-refusal` argument enables loading of the refusal data from file, skipping measurement; the full-weight model can be specified here. Right now abliteration application loads the entire model into "cpu" memory, a limitation which will need to be fixed before this codebase can handle larger models.
@@ -85,7 +79,6 @@ This repository now supports `.json` config file. This file should contain a `di
     "output": "/output/dir",
     "data-harmful": "/absolute/path/to/harmful-prompts.txt",
     "scale-factor": 114,
-    "load-in-4bit": true
 }
 ```
 
