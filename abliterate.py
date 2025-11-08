@@ -52,20 +52,23 @@ if __name__ == "__main__":
 
     precision = getattr(model_config, "dtype")
 
-    if config["load-in-4bit"]:
-        quant_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=precision,
-            bnb_4bit_use_double_quant=True,
-        )
-    elif config["load-in-8bit"]:
-        quant_config = BitsAndBytesConfig(
-            load_in_8bit=True,
-            llm_int8_enable_fp32_cpu_offload=True,
-            llm_int8_has_fp16_weight=True,
-        )
-    else:
-        quant_config = None
+    quant_config = None
+    # autodetect BitsAndBytes quant
+    if hasattr(model_config,"quantization_config"):
+        bnb_config = getattr(model_config, "quantization_config")
+        if (bnb_config["load_in_4bit"] == True):
+            print("4b")
+            quant_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=precision,
+                bnb_4bit_use_double_quant=True,
+            )
+        elif (bnb_config["load_in_8bit"] == True):
+            quant_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_enable_fp32_cpu_offload=True,
+                llm_int8_has_fp16_weight=True,
+            )
 
     if isinstance(config["data-harmful"], str):
         harmful_list = load_data(config["data-harmful"])
