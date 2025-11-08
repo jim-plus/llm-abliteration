@@ -50,12 +50,7 @@ if __name__ == "__main__":
     if (has_vision):
         model_loader = AutoModelForImageTextToText
 
-    if config["precision"] == "fp16":
-        precision = torch.float16
-    elif config["precision"] == "bf16":
-        precision = torch.bfloat16
-    else:
-        precision = getattr(model_config, "dtype")
+    precision = getattr(model_config, "dtype")
 
     if config["load-in-4bit"]:
         quant_config = BitsAndBytesConfig(
@@ -85,11 +80,6 @@ if __name__ == "__main__":
         deccp_list = load_dataset("augmxnt/deccp", split="censored")
         harmful_list += deccp_list["text"]
 
-    if isinstance(config["num-harmful"], int) and config["num-harmful"] > 0:
-        harmful_list = random.sample(harmful_list, config["num-harmful"])
-    if isinstance(config["num-harmless"], int) and config["num-harmless"] > 0:
-        harmless_list = random.sample(harmless_list, config["num-harmless"])
-
     if hasattr(model_config, "quantization_config"):
         model = AutoModelForCausalLM.from_pretrained(
             config["model"],
@@ -97,7 +87,6 @@ if __name__ == "__main__":
             dtype=precision,
             device_map=config["device"],
             attn_implementation="flash_attention_2" if config["flash-attn"] else None,
-    #        attn_implementation="sdpa",
         )
     else:
         model = model_loader.from_pretrained(
@@ -108,7 +97,6 @@ if __name__ == "__main__":
             device_map=config["device"],
             quantization_config=quant_config,
             attn_implementation="flash_attention_2" if config["flash-attn"] else None,
-    #        attn_implementation="sdpa",
         )
     model.requires_grad_(False)
     if has_tied_weights(family):
@@ -191,8 +179,8 @@ if __name__ == "__main__":
     tokenizer.save_pretrained(config["output"])
     if (has_vision):
         processor = AutoProcessor.from_pretrained(
-            model_name,
+            config["model"],
             device_map="cpu"
         )
-        print("Saving processor to",output_dir)
-        processor.save_pretrained(output_dir)
+        print("Saving processor to",config["output"])
+        processor.save_pretrained(config["output"])
