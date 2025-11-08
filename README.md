@@ -55,12 +55,6 @@ python compare.py -a <model_a> -b <model_b>
 python abliterate.py -m meta-llama/Llama-3.2-3B-Instruct -o llama3.2-3b-abliterated
 ```
 
-- Load model in 4-bit precision using bitsandbytes:
-
-```shell
-python abliterate.py -m meta-llama/Llama-3.2-3B-Instruct -o llama3.2-3b-abliterated --load-in-4bit
-```
-
 - Compare your abliterated model with the original model:
 
 ```shell
@@ -74,7 +68,8 @@ python compare.py -a meta-llama/Llama-3.2-3B-Instruct -b llama3.2-3b-abliterated
 ```
 
 > [!NOTE]
-> If you use `--load-in-4bit` or `--load-in-8bit`, then I will assume you are lack of VRAM, and the final appliance step will be performed with CPU and memory. Please make sure you have enough memory to load the **bf16** model.
+> The measurement process will autodetect 4-bit and 8-bit BitsAndBytes models. However, abliteration needs to be performed on full-weight models. As a temporary workaround, it's recommended to use `--output-refusal` to dump out the refusal data for later processing.
+> The `--input-refusal` argument enables loading of the refusal data from file, skipping measurement; the full-weight model can be specified here. Right now abliteration application loads the entire model into "cpu" memory, a limitation which will need to be fixed before this codebase can handle larger models.
 
 Now your model will be abliterated and saved to `<output_dir>`. Once it finishes, you can immediately chat with your abliterated model in the terminal. For Chinese models, you can use `--deccp` to abliterate it from certain topics.
 
