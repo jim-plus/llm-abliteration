@@ -1,0 +1,128 @@
+model: google/gemma-3-12b-it
+measurements: outedg3e.refuse
+output: outg3c4
+ablate:
+  - layer: 11
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 12
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 13
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 14
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 15
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 16
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 17
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 18
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 19
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 20
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 21
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 22
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 23
+    measurement: 23
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 24
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 25
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 26
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 27
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 28
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 29
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 30
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 31
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 32
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 33
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 34
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.00
+  - layer: 35
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.000
+  - layer: 36
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.000
+  - layer: 37
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.000
+  - layer: 38
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.000
+  - layer: 39
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.000
+  - layer: 40
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.000
+  - layer: 41
+    measurement: 29
+    scale: 1.0
+    sparsity: 0.000
