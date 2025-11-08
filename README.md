@@ -161,7 +161,7 @@ This repository provides a bunch of parameters to optimize. To get the best resu
 1. Carefully choose your prompts. Prompts in this repository are for illustrative purposes only; curate your own prompt datasets to obtain better results.
 2. Adjust parameters. The script provides various parameters to control the abliteration process.
 3. Experiment with changing the targets. You can modify the code to abliterate other targets, as long as it won't mess up the model.
-4. If you have limited VRAM, try `--load-in-4bit` or `--load-in-8bit` to load the model in 4-bit or 8-bit precision.
+4. If you have limited VRAM, try load the model as a 4-bit or 8-bit BitsAndBytes quant.
 
 ### Full arguments
 
