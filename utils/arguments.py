@@ -21,14 +21,6 @@ parser.add_argument(
     help="Target device for processing abliteration; warning: bitsandbytes quantization DOES NOT support CPU",
 )
 parser.add_argument(
-    "--precision",
-    "-p",
-    type=str,
-    choices=["fp16", "bf16", "fp32"],
-    default="bf16",
-    help="Precision to use for ablation, default is bf16",
-)
-parser.add_argument(
     "--batch-size",
     type=int,
     default=32,
@@ -89,16 +81,6 @@ parser.add_argument(
     default=False,
     help="Perform sweep analysis during calibration",
 )
-parser.add_argument(
-    "--num-harmful", "-nhf", type=int, default=-1, help="Number of harmful calibrations"
-)
-parser.add_argument(
-    "--num-harmless",
-    "-nhl",
-    type=int,
-    default=-1,
-    help="Number of harmless calibrations",
-)
 
 refusals = parser.add_mutually_exclusive_group()
 refusals.add_argument(
@@ -145,7 +127,6 @@ def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
 
     config.setdefault("model", args.model)
     config.setdefault("device", args.device)
-    config.setdefault("precision", args.precision)
     config.setdefault("batch-size", args.batch_size)
     config.setdefault("output", args.output)
     config.setdefault("skip-begin", args.skip_begin)
@@ -159,8 +140,6 @@ def generate_config(args: Namespace) -> dict[str, str | int | float | None]:
     config.setdefault("data-harmless", args.data_harmless)
     config.setdefault("deccp", args.deccp)
     config.setdefault("sweep", args.sweep)
-    config.setdefault("num-harmful", args.num_harmful)
-    config.setdefault("num-harmless", args.num_harmless)
     config.setdefault("input-refusal", args.input_refusal)
     config.setdefault("output-refusal", args.output_refusal)
     config.setdefault("load-in-4bit", args.load_in_4bit)
