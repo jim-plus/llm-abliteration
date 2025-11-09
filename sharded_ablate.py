@@ -25,6 +25,7 @@ def magnitude_sparsify(tensor: torch.Tensor, fraction: float) -> torch.Tensor:
     mask = tensor.abs() >= threshold
     return tensor * mask
 
+
 """
 A warning regarding PyTorch's convention vs. Safetensors storage:
 
@@ -62,10 +63,10 @@ def modify_tensor_norm_preserved(
     
         # Apply abliteration to the DIRECTIONAL component
         # Compute dot product of each row with refusal direction
-        projection = torch.matmul(refusal_normalized, W_direction)  # [out_features]
+        projection = torch.matmul(W_direction, refusal_normalized)  # [out_features]
         
         # Subtract the projection
-        W_direction_new = W_direction - scale_factor * torch.outer(refusal_normalized, projection)
+        W_direction_new = W_direction - scale_factor * torch.outer(projection, refusal_normalized)
     
         # Re-normalize the adjusted direction
         W_direction_new = torch.nn.functional.normalize(W_direction_new, dim=1)
@@ -143,36 +144,8 @@ def ablate_by_layers_sharded(
     if layer_prefix is None:
         raise ValueError("Could not detect layer structure in model weights")
     
-    # Pre-compute refusal directions for each measurement
-    print("\nPre-computing refusal directions...")
-    refusal_dirs = {}
-    
-    for layer, measurement, scale, sparsity in marching_orders:
-        if measurement not in refusal_dirs:
-            print(f"  Processing measurement {measurement} (layer {layer}, scale {scale}, sparsity {sparsity})")
-            
-            # Get refusal and harmless directions
-            refusal_dir = measures[f'refuse_{measurement}'].float()
-            harmless_dir = measures[f'harmless_{layer}'].float()
-            
-            # Normalize harmless direction
-            harmless_normalized = torch.nn.functional.normalize(harmless_dir, dim=0)
-            
-            # Project and subtract to refine refusal direction
-            projection_scalar = refusal_dir @ harmless_normalized
-            refined_refusal_dir = refusal_dir - projection_scalar * harmless_normalized
-            refusal_dir = refined_refusal_dir.to(precision)
-            
-            # Apply sparsity
-            if sparsity > 0.0:
-                refusal_dir = magnitude_sparsify(refusal_dir, fraction=sparsity)
-            
-            # Normalize
-            refusal_dir = torch.nn.functional.normalize(refusal_dir, dim=-1)
-            refusal_dirs[measurement] = refusal_dir
-    
     # Build a map of which keys in which shards need modification
-    shard_modifications = {}  # shard_file -> [(key, layer, measurement, scale)]
+    shard_modifications = {}  # shard_file -> [(key, layer, measurement, scale, sparsity)]
     
     for layer, measurement, scale, sparsity in marching_orders:
         # Build the key patterns for this layer
@@ -184,7 +157,7 @@ def ablate_by_layers_sharded(
             if key == o_proj_pattern or key == down_proj_pattern:
                 if shard_file not in shard_modifications:
                     shard_modifications[shard_file] = []
-                shard_modifications[shard_file].append((key, layer, measurement, scale))
+                shard_modifications[shard_file].append((key, layer, measurement, scale, sparsity))
     
     print(f"\nWill modify {len(shard_modifications)} shards out of {len(set(weight_map.values()))} total")
     
@@ -203,15 +176,39 @@ def ablate_by_layers_sharded(
             state_dict = load_file(str(shard_path))
             
             # Apply all modifications for this shard
-            for key, layer, measurement, scale in shard_modifications[shard_file]:
+            for key, layer, measurement, scale, sparsity in shard_modifications[shard_file]:
                 if key in state_dict:
                     print(f"  Modifying layer {layer}: {key}")
-                    refusal_dir = refusal_dirs[measurement]
+                    
+                    # Compute refusal direction on-the-fly
+                    refusal_dir = measures[f'refuse_{measurement}'].float()
+                    harmless_dir = measures[f'harmless_{layer}'].float()
+                    
+                    # Normalize harmless direction
+                    harmless_normalized = torch.nn.functional.normalize(harmless_dir, dim=0)
+                    
+                    # Project and subtract to refine refusal direction
+                    projection_scalar = refusal_dir @ harmless_normalized
+                    refined_refusal_dir = refusal_dir - projection_scalar * harmless_normalized
+                    refusal_dir = refined_refusal_dir.to(precision)
+                    
+                    # Apply sparsity
+                    if sparsity > 0.0:
+                        refusal_dir = magnitude_sparsify(refusal_dir, fraction=sparsity)
+                    
+                    # Normalize
+                    refusal_dir = torch.nn.functional.normalize(refusal_dir, dim=-1)
+                    
+                    # Apply modification
                     state_dict[key] = modify_tensor_norm_preserved(
                         state_dict[key],
                         refusal_dir,
                         scale,
                     )
+                    
+                    # Clean up
+                    del refusal_dir, harmless_dir, harmless_normalized, refined_refusal_dir
+                    gc.collect()
             
             # Save modified shard
             print(f"  Saving {shard_file}...")
@@ -226,10 +223,6 @@ def ablate_by_layers_sharded(
         else:
             # Just copy unmodified shards (no need to load)
             shutil.copy(str(shard_path), f"{output_path}/{shard_file}")
-    
-    # Clean up refusal directions
-    del refusal_dirs
-    gc.collect()
     
     # Copy the index file
     print("\nCopying configuration files...")
