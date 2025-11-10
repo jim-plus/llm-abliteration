@@ -46,7 +46,8 @@ def modify_tensor_norm_preserved(
 
     with torch.no_grad():
         # Move tensors for computation
-        W_gpu = W.to(device, dtype=torch.float32, non_blocking=True)
+        # Transpose here to convert from safetensors convention
+        W_gpu = W.to(device, dtype=torch.float32, non_blocking=True).T
         refusal_dir_gpu = refusal_dir.to(device, dtype=torch.float32, non_blocking=True)
 
         # Ensure refusal_dir is a 1-dimensional tensor
@@ -63,7 +64,7 @@ def modify_tensor_norm_preserved(
     
         # Apply abliteration to the DIRECTIONAL component
         # Compute dot product of each row with refusal direction
-        projection = torch.matmul(W_direction, refusal_normalized)  # [out_features]
+        projection = torch.matmul(W_direction, refusal_normalized)  # [in_features]
         
         # Subtract the projection
         W_direction_new = W_direction - scale_factor * torch.outer(projection, refusal_normalized)
@@ -75,7 +76,8 @@ def modify_tensor_norm_preserved(
         W_modified = W_norm * W_direction_new
         
         # Convert back to original dtype and CPU
-        result = W_modified.to('cpu', dtype=original_dtype, non_blocking=True)
+        # Transpose here to return safetensors convention
+        result = W_modified.T.to('cpu', dtype=original_dtype, non_blocking=True)
 
         # Cleanup
         del W_gpu, refusal_dir_gpu, refusal_normalized
@@ -204,7 +206,7 @@ def ablate_by_layers_sharded(
                         state_dict[key],
                         refusal_dir,
                         scale,
-                    )
+                    ).contiguous()
                     
                     # Clean up
                     del refusal_dir, harmless_dir, harmless_normalized, refined_refusal_dir
@@ -252,7 +254,7 @@ def ablate_by_layers_sharded(
             # File doesn't exist, skip it
             pass
     
-    print(f"\n✓ Modified model saved to {output_path}")
+    print(f"\nModified model saved to {output_path}")
 
 
 def main():
