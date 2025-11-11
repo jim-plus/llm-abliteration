@@ -17,7 +17,7 @@ CUDA is assumed to be available, for practical purposes. The original abliterati
 
 ## Quick Start
 
-### Clone the repositoty
+### Clone the repository
 
 ```shell
 git clone https://github.com/jim-plus/llm-abliteration.git && cd abliteration
@@ -29,10 +29,28 @@ git clone https://github.com/jim-plus/llm-abliteration.git && cd abliteration
 pip install -r requirements.txt
 ```
 
-### Make your abliterations
+### Make your abliterations (outdated way)
 
 ```shell
 python abliterate.py -m <path_to_your_model> -o <output_dir>
+```
+
+### Measure harmful, harmless, and refusal directions
+
+```shell
+python measure.py -m <path_to_your_model> -o <output_file>
+```
+
+### Analyze resulting measurements, with optional charting
+
+```shell
+python analyze.py <measurement_file> -c
+```
+
+### Abliterate model
+
+```
+python sharded_abliteration.py <abliteration_yaml_file>
 ```
 
 ### Chat with your abliterated model
