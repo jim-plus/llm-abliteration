@@ -20,7 +20,7 @@ CUDA is assumed to be available, for practical purposes. The original abliterati
 ### Clone the repository
 
 ```shell
-git clone https://github.com/jim-plus/llm-abliteration.git && cd abliteration
+git clone https://github.com/jim-plus/llm-abliteration.git && cd llm-abliteration
 ```
 
 ### Install dependencies
