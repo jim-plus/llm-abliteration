@@ -12,10 +12,89 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 from utils.data import load_data
-from utils.arguments import parser, generate_config
+#from utils.arguments import parser, generate_config
 from utils.models import has_tied_weights
 from utils.clip import magnitude_clip
 
+
+def welford_gpu_batched_multilayer_float32(
+    formatted_prompts: list[str],
+    desc: str,
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    layer_indices: list[int],
+    pos: int = -1,
+    batch_size: int = 1,
+    clip: float = 1.0,
+) -> dict[int, torch.Tensor]:
+    text_config = model.config
+    if hasattr(text_config, "text_config"):
+        text_config = text_config.text_config
+    vocab_size = text_config.vocab_size
+
+    means = {layer_idx: None for layer_idx in layer_indices}
+    counts = {layer_idx: 0 for layer_idx in layer_indices}
+    dtype = model.dtype
+
+    for i in tqdm(range(0, len(formatted_prompts), batch_size), desc=desc):
+        batch_prompts = formatted_prompts[i:i+batch_size]
+
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = 'left'
+
+        batch_encoding = tokenizer(
+            batch_prompts,
+            padding=True,
+            padding_side='left',
+            return_tensors="pt",
+        )
+        batch_input = batch_encoding['input_ids'].to(model.device)
+        batch_mask = batch_encoding['attention_mask'].to(model.device)
+
+        raw_output = model.generate(
+            batch_input,
+            attention_mask=batch_mask,
+            max_new_tokens=1,
+            return_dict_in_generate=True,
+            output_hidden_states=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+        
+        del batch_input, batch_mask
+        hidden_states = raw_output.hidden_states[0]
+        del raw_output
+
+        # Process layers with Welford in float32
+        for layer_idx in layer_indices:
+            # Cast to float32 for accumulation
+            current_hidden = hidden_states[layer_idx][:, pos, :].float()
+            if (clip < 1.0):
+                current_hidden = magnitude_clip(current_hidden,clip)
+
+            batch_size_actual = current_hidden.size(dim=0)
+            total_count = counts[layer_idx] + batch_size_actual
+
+            if means[layer_idx] is None:
+                # Initialize mean in float32
+                means[layer_idx] = current_hidden.mean(dim=0)
+            else:
+                # All operations in float32 (means[layer_idx] is already float32)
+                delta = current_hidden - means[layer_idx]
+                means[layer_idx] += delta.sum(dim=0) / total_count
+
+            counts[layer_idx] = total_count
+            del current_hidden
+
+        del hidden_states
+        torch.cuda.empty_cache()
+
+    # Cast back to model dtype and move to CPU
+    return_dict = {
+#        layer_idx: mean.to(dtype=dtype, device="cpu") 
+        layer_idx: mean
+        for layer_idx, mean in means.items()
+    }
+    return return_dict
 
 def welford_gpu_batched_inference(
     formatted_prompts: list[str],
@@ -115,6 +194,7 @@ def compute_refusals(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
     harmful_list: list[str],
     harmless_list: list[str],
+    projected: bool = False,
     inference_batch_size: int = 32,
     clip: float = 1.0,
 ) -> torch.Tensor:
@@ -128,11 +208,11 @@ def compute_refusals(
     focus_layers = range(num_layers)
 
     harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list)
-    harmful_means = welford_gpu_batched_inference(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
+    harmful_means = welford_gpu_batched_multilayer_float32(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
     torch.cuda.empty_cache()
     del harmful_formatted
     harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list)
-    harmless_means = welford_gpu_batched_inference(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
+    harmless_means = welford_gpu_batched_multilayer_float32(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
     del harmless_formatted
 
     results = {}
@@ -146,16 +226,19 @@ def compute_refusals(
         results[f'harmless_{layer}'] = harmless_mean
         refusal_dir = harmful_mean - harmless_mean
 
-        # Normalize harmless_mean to avoid numerical issues in projection calculation
-        harmless_normalized = torch.nn.functional.normalize(harmless_mean.float(), dim=0)
+        if projected:
+            # Compute Gram-Schmidt second orthogonal vector/direction to remove harmless direction interference from refusal direction
+            # Normalize harmless_mean to avoid numerical issues in projection calculation
+            harmless_normalized = torch.nn.functional.normalize(harmless_mean.float(), dim=0)
 
-        # Project and subtract contribution along harmless direction
-        projection_scalar = refusal_dir @ harmless_normalized
+            # Project and subtract contribution along harmless direction
+            projection_scalar = refusal_dir @ harmless_normalized
 
-        # Resulting refusal direction should minimize impact along harmless direction
-        refined_refusal_dir = refusal_dir - projection_scalar * harmless_normalized
+            # Resulting refusal direction should minimize impact along harmless direction
+            refusal_dir = refusal_dir - projection_scalar * harmless_normalized
+        # otherwise default to stock abliteration refusal direction calculation
 
-        results[f'refuse_{layer}'] = refined_refusal_dir
+        results[f'refuse_{layer}'] = refusal_dir
 
     torch.cuda.empty_cache()
     gc.collect()
@@ -169,6 +252,13 @@ if __name__ == "__main__":
         default=None,
         required=True,
         help="Local model directory or HuggingFace model ID",
+    )
+    parser.add_argument(
+        "--quant-measure", "-q",
+        type=str,
+        choices=["4bit", "8bit"],
+        default=None,
+        help="Perform measurement using 4bit or 8bit bitsandbytes quant"
     )
     parser.add_argument(
         "--batch-size",
@@ -213,6 +303,12 @@ if __name__ == "__main__":
         default=False,
         help="For Chinese models, add topics to harmful prompts",
     )
+    parser.add_argument(
+        "--projected",
+        action="store_true",
+        default=False,
+        help="Remove projection along harmless direction from refusal direction",
+    )
 
     args = parser.parse_args()
 
@@ -244,21 +340,27 @@ if __name__ == "__main__":
     precision = getattr(model_config, "dtype")
 
     quant_config = None
-    # autodetect BitsAndBytes quant
+    qbit = args.quant_measure
+    # autodetect BitsAndBytes quant; overrides option
     if hasattr(model_config,"quantization_config"):
         bnb_config = getattr(model_config, "quantization_config")
         if (bnb_config["load_in_4bit"] == True):
-            quant_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=precision,
-                bnb_4bit_use_double_quant=True,
-            )
+            qbit = "4bit"
         elif (bnb_config["load_in_8bit"] == True):
-            quant_config = BitsAndBytesConfig(
-                load_in_8bit=True,
-                llm_int8_enable_fp32_cpu_offload=True,
-                llm_int8_has_fp16_weight=True,
-            )
+            qbit = "8bit"
+
+    if qbit == "4bit":
+        quant_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=precision,
+            bnb_4bit_use_double_quant=True,
+        )
+    elif qbit == "8bit":
+        quant_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+#            llm_int8_enable_fp32_cpu_offload=True,
+#            llm_int8_has_fp16_weight=True,
+        )    
 
     if isinstance(args.data_harmful, str):
         harmful_list = load_data(args.data_harmful)
@@ -312,7 +414,7 @@ if __name__ == "__main__":
     results = {}
     results = compute_refusals(
         model, tokenizer, harmful_list, harmless_list,
-        args.batch_size, args.clip
+        args.projected, args.batch_size, args.clip
     )
 
     print(f"Saving refusal information to {args.output}...")
