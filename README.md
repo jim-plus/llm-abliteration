@@ -29,12 +29,6 @@ git clone https://github.com/jim-plus/llm-abliteration.git && cd llm-abliteratio
 pip install -r requirements.txt
 ```
 
-### Make your abliterations (outdated way)
-
-```shell
-python abliterate.py -m <path_to_your_model> -o <output_dir>
-```
-
 ### Measure harmful, harmless, and refusal directions
 
 ```shell

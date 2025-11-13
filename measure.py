@@ -86,7 +86,8 @@ def welford_gpu_batched_multilayer_float32(
             del current_hidden
 
         del hidden_states
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # Cast back to model dtype and move to CPU
     return_dict = {
@@ -165,7 +166,8 @@ def welford_gpu_batched_inference(
             del current_hidden
 
         del hidden_states
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     #  Move to CPU
     return_dict = {
@@ -209,7 +211,8 @@ def compute_refusals(
 
     harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list)
     harmful_means = welford_gpu_batched_multilayer_float32(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
-    torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     del harmful_formatted
     harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list)
     harmless_means = welford_gpu_batched_multilayer_float32(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
@@ -240,7 +243,8 @@ def compute_refusals(
 
         results[f'refuse_{layer}'] = refusal_dir
 
-    torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     gc.collect()
     return results
 
@@ -309,6 +313,18 @@ if __name__ == "__main__":
         default=False,
         help="Remove projection along harmless direction from refusal direction",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="Device to use for computation",
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default="float16",
+        help="Data type to use for computation",
+    )
 
     args = parser.parse_args()
 
@@ -325,10 +341,14 @@ if __name__ == "__main__":
     model_config = AutoConfig.from_pretrained(model)
     model_type = getattr(model_config,"model_type")
 
-    if hasattr(model_config,"dtype"):
+    if hasattr(model_config,"dtype") and getattr(model_config, "dtype") is not None:
         native_precision = getattr(model_config,"dtype")
-    elif hasattr(model_config,"torch_dtype"):
+    elif hasattr(model_config,"torch_dtype") and getattr(model_config, "torch_dtype") is not None:
         native_precision = getattr(model_config,"torch_dtype")
+    else:
+        native_precision = torch.float32
+
+    dtype = getattr(torch, args.dtype)
 
     has_vision = False
     if hasattr(model_config,"vision_config"):
@@ -336,8 +356,6 @@ if __name__ == "__main__":
     model_loader = AutoModelForCausalLM
     if (has_vision):
         model_loader = AutoModelForImageTextToText
-
-    precision = getattr(model_config, "dtype")
 
     quant_config = None
     qbit = args.quant_measure
@@ -352,7 +370,7 @@ if __name__ == "__main__":
     if qbit == "4bit":
         quant_config = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_compute_dtype=precision,
+            bnb_4bit_compute_dtype=dtype,
             bnb_4bit_use_double_quant=True,
         )
     elif qbit == "8bit":
@@ -376,21 +394,22 @@ if __name__ == "__main__":
         harmful_list += deccp_list["text"]
 
     # Assume "cuda" device for now; refactor later if there's demand for other GPU-accelerated platforms
+    device_map = {"": args.device}
     if hasattr(model_config, "quantization_config"):
         model = AutoModelForCausalLM.from_pretrained(
             args.model,
 #            trust_remote_code=True,
-            dtype=precision,
-            device_map="cuda",
+            dtype=dtype,
+            device_map=device_map,
             attn_implementation="flash_attention_2" if args.flash_attn else None,
         )
     else:
         model = model_loader.from_pretrained(
             args.model,
 #            trust_remote_code=True,
-            dtype=precision,
-            low_cpu_mem_usage=True,
-            device_map="cuda",
+            dtype=dtype,
+            low_cpu_mem_usage=True if args.device == "cpu" else False,
+            device_map=device_map,
             quantization_config=quant_config,
             attn_implementation="flash_attention_2" if args.flash_attn else None,
         )
@@ -406,7 +425,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(
         args.model,
 #        trust_remote_code=True,
-        device_map="cuda",
+        device_map=device_map,
         padding=True,
     )
 
