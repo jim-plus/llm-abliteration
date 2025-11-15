@@ -101,10 +101,11 @@ def welford_gpu_batched_multilayer_float32(
 
     # Cast back to model dtype and move to CPU
     return_dict = {
-#        layer_idx: mean.to(dtype=dtype, device="cpu") 
-        layer_idx: mean
+        layer_idx: mean.to(device="cpu") 
         for layer_idx, mean in means.items()
     }
+    del means
+    torch.cuda.empty_cache()
     return return_dict
 
 def format_chats(
