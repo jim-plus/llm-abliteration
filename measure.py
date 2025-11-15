@@ -61,41 +61,28 @@ def welford_gpu_batched_multilayer_float32(
         batch_input = batch_encoding['input_ids'].to(model.device)
         batch_mask = batch_encoding['attention_mask'].to(model.device)
 
-        # Use forward pass instead of generate to get hidden states at the last prompt token
-        with torch.no_grad():
-            outputs = model(
-                batch_input,
-                attention_mask=batch_mask,
-                output_hidden_states=True,
-            )
+        # Use generate to get hidden states at the first generated token position
+        raw_output = model.generate(
+            batch_input,
+            attention_mask=batch_mask,
+            max_new_tokens=1,
+            return_dict_in_generate=True,
+            output_hidden_states=True,
+            pad_token_id=tokenizer.eos_token_id,
+        )
         
-        hidden_states = outputs.hidden_states  # Tuple of all layer hidden states
-        
-        # Find the actual last token position for each sample in the batch
-        # attention_mask is 1 for real tokens, 0 for padding
-        last_token_indices = batch_mask.sum(dim=1) - 1  # Shape: (batch_size,)
-        
-        del batch_input, batch_mask, outputs
+        del batch_input, batch_mask
+        hidden_states = raw_output.hidden_states[0]  # First generation step
+        del raw_output
 
         # Process layers with Welford in float32
         for layer_idx in layer_indices:
-            # Get hidden states for this layer and extract last real token for each sample
-            layer_hidden = hidden_states[layer_idx]  # Shape: (batch_size, seq_len, hidden_dim)
-            
-            # Extract the last token position for each sample in the batch
-            batch_size_actual = layer_hidden.size(0)
-            hidden_dim = layer_hidden.size(2)
-            
-            # Gather the hidden states at the last token position for each sample
-            # last_token_indices shape: (batch_size,) -> need to expand for gather
-            indices = last_token_indices.unsqueeze(-1).unsqueeze(-1).expand(-1, 1, hidden_dim)
-            current_hidden = torch.gather(layer_hidden, 1, indices).squeeze(1)  # Shape: (batch_size, hidden_dim)
-            del layer_hidden
-            
             # Cast to float32 for accumulation
-            current_hidden = current_hidden.float()
+            current_hidden = hidden_states[layer_idx][:, pos, :].float()
             if (clip < 1.0):
                 current_hidden = magnitude_clip(current_hidden, clip)
+
+            batch_size_actual = current_hidden.size(dim=0)
             total_count = counts[layer_idx] + batch_size_actual
 
             if means[layer_idx] is None:
@@ -115,109 +102,6 @@ def welford_gpu_batched_multilayer_float32(
     # Cast back to model dtype and move to CPU
     return_dict = {
 #        layer_idx: mean.to(dtype=dtype, device="cpu") 
-        layer_idx: mean
-        for layer_idx, mean in means.items()
-    }
-    return return_dict
-
-def welford_gpu_batched_inference(
-    formatted_prompts: list[str],
-    desc: str,
-    model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    layer_indices: list[int],
-    pos: int = -1,
-    batch_size: int = 1,
-    clip: float = 1.0,
-    processor = None,  # Add processor parameter
-    is_vision_model: bool = False,  # Add flag for vision models
-) -> dict[int, torch.Tensor]:
-    text_config = model.config
-    if hasattr(text_config, "text_config"):
-        text_config = text_config.text_config
-    # vocab_size = text_config.vocab_size
-
-    means = {layer_idx: None for layer_idx in layer_indices}
-    counts = {layer_idx: 0 for layer_idx in layer_indices}
-    # dtype = model.dtype
-
-    for i in tqdm(range(0, len(formatted_prompts), batch_size), desc=desc):
-        batch_prompts = formatted_prompts[i:i+batch_size]
-
-        if is_vision_model and processor is not None:
-            # For vision models, use the processor with text-only input
-            batch_encoding = processor(
-                text=batch_prompts,
-                return_tensors="pt",
-                padding=True,
-            )
-        else:
-            # For text-only models, use the tokenizer
-            tokenizer.pad_token = tokenizer.eos_token
-            tokenizer.padding_side = 'left'
-
-            batch_encoding = tokenizer(
-                batch_prompts,
-                padding=True,
-                padding_side='left',
-                return_tensors="pt",
-            )
-
-        batch_input = batch_encoding['input_ids'].to(model.device)
-        batch_mask = batch_encoding['attention_mask'].to(model.device)
-
-        # Use forward pass instead of generate to get hidden states at the last prompt token
-        with torch.no_grad():
-            outputs = model(
-                batch_input,
-                attention_mask=batch_mask,
-                output_hidden_states=True,
-            )
-        
-        hidden_states = outputs.hidden_states  # Tuple of all layer hidden states
-        
-        # Find the actual last token position for each sample in the batch
-        # attention_mask is 1 for real tokens, 0 for padding
-        last_token_indices = batch_mask.sum(dim=1) - 1  # Shape: (batch_size,)
-        
-        del batch_input, batch_mask, outputs
-
-        # Process layers with Welford in float32
-        for layer_idx in layer_indices:
-            # Get hidden states for this layer and extract last real token for each sample
-            layer_hidden = hidden_states[layer_idx]  # Shape: (batch_size, seq_len, hidden_dim)
-            
-            # Extract the last token position for each sample in the batch
-            batch_size_actual = layer_hidden.size(0)
-            hidden_dim = layer_hidden.size(2)
-            
-            # Gather the hidden states at the last token position for each sample
-            # last_token_indices shape: (batch_size,) -> need to expand for gather
-            indices = last_token_indices.unsqueeze(-1).unsqueeze(-1).expand(-1, 1, hidden_dim)
-            current_hidden = torch.gather(layer_hidden, 1, indices).squeeze(1)  # Shape: (batch_size, hidden_dim)
-            
-            # Cast to float32 for accumulation
-            current_hidden = current_hidden.float()
-            if (clip < 1.0):
-                current_hidden = magnitude_clip(current_hidden, clip)
-            total_count = counts[layer_idx] + batch_size_actual
-
-            if means[layer_idx] is None:
-                # Initialize mean in float32
-                means[layer_idx] = current_hidden.mean(dim=0)
-            else:
-                # All operations in float32 (means[layer_idx] is already float32)
-                delta = current_hidden - means[layer_idx]
-                means[layer_idx] += delta.sum(dim=0) / total_count
-
-            counts[layer_idx] = total_count
-            del current_hidden
-
-        del hidden_states
-        torch.cuda.empty_cache()
-
-    #  Move to CPU
-    return_dict = {
         layer_idx: mean
         for layer_idx, mean in means.items()
     }
