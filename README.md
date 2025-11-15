@@ -10,10 +10,16 @@ The code has been tested on Llama-3.2, Qwen2.5-Coder, Ministral-8b, and now Mist
 
 VRAM/RAM requirements: This codebase reflects efforts to reduce VRAM usage. You can abliterate whatever any model provided it fits within VRAM. Loading model in 4-bit precision using bitsandbytes is possible and recommended for large models when VRAM is limited. It is assumed that there is enough cpu memory to load the **bf16** (or full weight) model; the method for ablating the refusal vector could be enhanced to perform lazy-loading in the future to reduce this requirement.
 
-CUDA is assumed to be available, for practical purposes. The original abliteration paper and code used TransformerLens, and measured resid_pre, resid_mid, and resid_post. Failspy's code measured resid_pre and resid_post. Sumandora's code based on Transformers accesses the equivalent of resid_post with hidden_states.
+CUDA is assumed to be available. The original abliteration paper and code used TransformerLens, and measured resid_pre, resid_mid, and resid_post. Failspy's code measured resid_pre and resid_post. Sumandora's code based on Transformers accesses the equivalent of resid_post with hidden_states.
 
 > [!NOTE]
-> Abliteration is not full removal of censorship. Abliteration doesn't necessarily mean the model is completely uncensored; a properly abliterated model will not explicitly refuse, theoretically, based on the nature of refusal captured in datasets used for abliteration.
+> Abliteration does not guarantee full removal of censorship. Abliteration doesn't necessarily mean the model is completely uncensored; a properly abliterated model will not explicitly refuse, theoretically, based on the nature of refusals captured in datasets used for abliteration.
+
+For an explanation of abliteration, see: https://huggingface.co/blog/mlabonne/abliteration
+
+This repo enables norm-preserving biprojected abliteration. https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration
+
+Removal of the projected contribution during measurement is optional, but the other modifications to this implmentation abliteration are mandatory.
 
 ## Quick Start
 
@@ -44,8 +50,7 @@ Roughly:
 python measure.py -m <path_to_your_model> -o <output_file>
 ```
 Carefully curate your prompt datasets to obtain better results.
-Prompts in this repository are for illustrative purposes only.
-You can specify prompt dataset files.
+You can explicitly specify prompt dataset files, either as local files or on HuggingFace.
 ```shell
 python measure.py -m <path_to_your_model> -o <output_file> --data-harmful DATA_HARMFUL --data-harmless DATA_HARMLESS
 ```
@@ -95,6 +100,9 @@ You can use your own prompts to abliterate your model. Supported file formats ar
 - `.jsonl`: A JSON Lines file with a list of strings
 
 Then load your own prompts using `--data-harmful` and `--data-harmless` arguments during measurement.
+
+Two scripts have been provided to convert between parquet and jsonl formats to assist in dataset customization.
+Prompts in this repository are for illustrative purposes only, and have mostly been inherited from the fork.
 
 ```shell
 python measure.py -m <path_to_your_model> -o <output_file> --data-harmful /path/to/my/harmful.txt --data-harmless /path/to/my/harmless.txt
