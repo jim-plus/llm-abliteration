@@ -7,12 +7,10 @@ from transformers import AutoConfig
 from transformers import AutoModelForCausalLM
 from transformers import AutoModelForImageTextToText
 from transformers import AutoTokenizer
+from transformers import AutoProcessor
 from transformers import BitsAndBytesConfig
-from transformers.modeling_utils import PreTrainedModel
-from transformers.tokenization_utils import PreTrainedTokenizer
-from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
+from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokenizerFast
 from utils.data import load_data
-#from utils.arguments import parser, generate_config
 from utils.models import has_tied_weights
 from utils.clip import magnitude_clip
 
@@ -26,6 +24,8 @@ def welford_gpu_batched_multilayer_float32(
     pos: int = -1,
     batch_size: int = 1,
     clip: float = 1.0,
+    processor = None,  # Add processor parameter
+    is_vision_model: bool = False,  # Add flag for vision models
 ) -> dict[int, torch.Tensor]:
     text_config = model.config
     if hasattr(text_config, "text_config"):
@@ -39,39 +39,63 @@ def welford_gpu_batched_multilayer_float32(
     for i in tqdm(range(0, len(formatted_prompts), batch_size), desc=desc):
         batch_prompts = formatted_prompts[i:i+batch_size]
 
-        tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = 'left'
+        if is_vision_model and processor is not None:
+            # For vision models, use the processor with text-only input
+            batch_encoding = processor(
+                text=batch_prompts,
+                return_tensors="pt",
+                padding=True,
+            )
+        else:
+            # For text-only models, use the tokenizer
+            tokenizer.pad_token = tokenizer.eos_token
+            tokenizer.padding_side = 'left'
 
-        batch_encoding = tokenizer(
-            batch_prompts,
-            padding=True,
-            padding_side='left',
-            return_tensors="pt",
-        )
+            batch_encoding = tokenizer(
+                batch_prompts,
+                padding=True,
+                padding_side='left',
+                return_tensors="pt",
+            )
+        
         batch_input = batch_encoding['input_ids'].to(model.device)
         batch_mask = batch_encoding['attention_mask'].to(model.device)
 
-        raw_output = model.generate(
-            batch_input,
-            attention_mask=batch_mask,
-            max_new_tokens=1,
-            return_dict_in_generate=True,
-            output_hidden_states=True,
-            pad_token_id=tokenizer.eos_token_id,
-        )
+        # Use forward pass instead of generate to get hidden states at the last prompt token
+        with torch.no_grad():
+            outputs = model(
+                batch_input,
+                attention_mask=batch_mask,
+                output_hidden_states=True,
+            )
         
-        del batch_input, batch_mask
-        hidden_states = raw_output.hidden_states[0]
-        del raw_output
+        hidden_states = outputs.hidden_states  # Tuple of all layer hidden states
+        
+        # Find the actual last token position for each sample in the batch
+        # attention_mask is 1 for real tokens, 0 for padding
+        last_token_indices = batch_mask.sum(dim=1) - 1  # Shape: (batch_size,)
+        
+        del batch_input, batch_mask, outputs
 
         # Process layers with Welford in float32
         for layer_idx in layer_indices:
+            # Get hidden states for this layer and extract last real token for each sample
+            layer_hidden = hidden_states[layer_idx]  # Shape: (batch_size, seq_len, hidden_dim)
+            
+            # Extract the last token position for each sample in the batch
+            batch_size_actual = layer_hidden.size(0)
+            hidden_dim = layer_hidden.size(2)
+            
+            # Gather the hidden states at the last token position for each sample
+            # last_token_indices shape: (batch_size,) -> need to expand for gather
+            indices = last_token_indices.unsqueeze(-1).unsqueeze(-1).expand(-1, 1, hidden_dim)
+            current_hidden = torch.gather(layer_hidden, 1, indices).squeeze(1)  # Shape: (batch_size, hidden_dim)
+            del layer_hidden
+            
             # Cast to float32 for accumulation
-            current_hidden = hidden_states[layer_idx][:, pos, :].float()
+            current_hidden = current_hidden.float()
             if (clip < 1.0):
-                current_hidden = magnitude_clip(current_hidden,clip)
-
-            batch_size_actual = current_hidden.size(dim=0)
+                current_hidden = magnitude_clip(current_hidden, clip)
             total_count = counts[layer_idx] + batch_size_actual
 
             if means[layer_idx] is None:
@@ -105,6 +129,8 @@ def welford_gpu_batched_inference(
     pos: int = -1,
     batch_size: int = 1,
     clip: float = 1.0,
+    processor = None,  # Add processor parameter
+    is_vision_model: bool = False,  # Add flag for vision models
 ) -> dict[int, torch.Tensor]:
     text_config = model.config
     if hasattr(text_config, "text_config"):
@@ -118,39 +144,62 @@ def welford_gpu_batched_inference(
     for i in tqdm(range(0, len(formatted_prompts), batch_size), desc=desc):
         batch_prompts = formatted_prompts[i:i+batch_size]
 
-        tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = 'left'
+        if is_vision_model and processor is not None:
+            # For vision models, use the processor with text-only input
+            batch_encoding = processor(
+                text=batch_prompts,
+                return_tensors="pt",
+                padding=True,
+            )
+        else:
+            # For text-only models, use the tokenizer
+            tokenizer.pad_token = tokenizer.eos_token
+            tokenizer.padding_side = 'left'
 
-        batch_encoding = tokenizer(
-            batch_prompts,
-            padding=True,
-            padding_side='left',
-            return_tensors="pt",
-        )
+            batch_encoding = tokenizer(
+                batch_prompts,
+                padding=True,
+                padding_side='left',
+                return_tensors="pt",
+            )
+
         batch_input = batch_encoding['input_ids'].to(model.device)
         batch_mask = batch_encoding['attention_mask'].to(model.device)
 
-        raw_output = model.generate(
-            batch_input,
-            attention_mask=batch_mask,
-            max_new_tokens=1,
-            return_dict_in_generate=True,
-            output_hidden_states=True,
-            pad_token_id=tokenizer.eos_token_id,
-        )
+        # Use forward pass instead of generate to get hidden states at the last prompt token
+        with torch.no_grad():
+            outputs = model(
+                batch_input,
+                attention_mask=batch_mask,
+                output_hidden_states=True,
+            )
         
-        del batch_input, batch_mask
-        hidden_states = raw_output.hidden_states[0]
-        del raw_output
+        hidden_states = outputs.hidden_states  # Tuple of all layer hidden states
+        
+        # Find the actual last token position for each sample in the batch
+        # attention_mask is 1 for real tokens, 0 for padding
+        last_token_indices = batch_mask.sum(dim=1) - 1  # Shape: (batch_size,)
+        
+        del batch_input, batch_mask, outputs
 
         # Process layers with Welford in float32
         for layer_idx in layer_indices:
+            # Get hidden states for this layer and extract last real token for each sample
+            layer_hidden = hidden_states[layer_idx]  # Shape: (batch_size, seq_len, hidden_dim)
+            
+            # Extract the last token position for each sample in the batch
+            batch_size_actual = layer_hidden.size(0)
+            hidden_dim = layer_hidden.size(2)
+            
+            # Gather the hidden states at the last token position for each sample
+            # last_token_indices shape: (batch_size,) -> need to expand for gather
+            indices = last_token_indices.unsqueeze(-1).unsqueeze(-1).expand(-1, 1, hidden_dim)
+            current_hidden = torch.gather(layer_hidden, 1, indices).squeeze(1)  # Shape: (batch_size, hidden_dim)
+            
             # Cast to float32 for accumulation
-            current_hidden = hidden_states[layer_idx][:, pos, :].float()
+            current_hidden = current_hidden.float()
             if (clip < 1.0):
-                current_hidden = magnitude_clip(current_hidden,clip)
-
-            batch_size_actual = current_hidden.size(dim=0)
+                current_hidden = magnitude_clip(current_hidden, clip)
             total_count = counts[layer_idx] + batch_size_actual
 
             if means[layer_idx] is None:
@@ -176,10 +225,14 @@ def welford_gpu_batched_inference(
 
 def format_chats(
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
-    prompt_list: list[str]
+    prompt_list: list[str],
+    processor = None,
 ):
+    # Use processor's tokenizer if available, otherwise use tokenizer directly
+    actual_tokenizer = processor.tokenizer if processor is not None else tokenizer
+    
     result_formatted = [
-        tokenizer.apply_chat_template(
+        actual_tokenizer.apply_chat_template(
             conversation=[{"role": "user", "content": inst}],
             add_generation_prompt=True,
             add_special_tokens=False,
@@ -197,6 +250,8 @@ def compute_refusals(
     projected: bool = False,
     inference_batch_size: int = 32,
     clip: float = 1.0,
+    processor = None,  # Add processor parameter
+    is_vision_model: bool = False,  # Add flag for vision models
 ) -> torch.Tensor:
     # dtype = model.dtype
     layer_base = model.model
@@ -207,12 +262,18 @@ def compute_refusals(
     # option for layer sweep
     focus_layers = range(num_layers)
 
-    harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list)
-    harmful_means = welford_gpu_batched_multilayer_float32(harmful_formatted, "Generating harmful outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
+    harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list, processor=processor)
+    harmful_means = welford_gpu_batched_multilayer_float32(
+        harmful_formatted, "Generating harmful outputs", model, tokenizer, 
+        focus_layers, pos, inference_batch_size, clip, processor, is_vision_model
+    )
     torch.cuda.empty_cache()
     del harmful_formatted
-    harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list)
-    harmless_means = welford_gpu_batched_multilayer_float32(harmless_formatted, "Generating harmless outputs", model, tokenizer, focus_layers, pos, inference_batch_size, clip)
+    harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list, processor=processor)
+    harmless_means = welford_gpu_batched_multilayer_float32(
+        harmless_formatted, "Generating harmless outputs", model, tokenizer, 
+        focus_layers, pos, inference_batch_size, clip, processor, is_vision_model
+    )
     del harmless_formatted
 
     results = {}
@@ -325,10 +386,26 @@ if __name__ == "__main__":
     model_config = AutoConfig.from_pretrained(model)
     model_type = getattr(model_config,"model_type")
 
-    if hasattr(model_config,"dtype"):
-        native_precision = getattr(model_config,"dtype")
-    elif hasattr(model_config,"torch_dtype"):
-        native_precision = getattr(model_config,"torch_dtype")
+    # Get the precision/dtype from config, with proper fallback
+    if hasattr(model_config, "torch_dtype") and model_config.torch_dtype is not None:
+        precision = model_config.torch_dtype
+    elif hasattr(model_config, "dtype") and model_config.dtype is not None:
+        precision = model_config.dtype
+    else:
+        # Fallback to bfloat16 if available, otherwise float16
+        precision = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    
+    # Convert string dtype to torch dtype if needed
+    if isinstance(precision, str):
+        dtype_map = {
+            "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
+            "float32": torch.float32,
+            "fp16": torch.float16,
+            "bf16": torch.bfloat16,
+            "fp32": torch.float32,
+        }
+        precision = dtype_map.get(precision, torch.bfloat16)
 
     has_vision = False
     if hasattr(model_config,"vision_config"):
@@ -337,8 +414,6 @@ if __name__ == "__main__":
     if (has_vision):
         model_loader = AutoModelForImageTextToText
 
-    precision = getattr(model_config, "dtype")
-
     quant_config = None
     qbit = args.quant_measure
     # autodetect BitsAndBytes quant; overrides option
@@ -346,6 +421,15 @@ if __name__ == "__main__":
         bnb_config = getattr(model_config, "quantization_config")
         if (bnb_config["load_in_4bit"] == True):
             qbit = "4bit"
+            # Override precision with compute dtype from quant config if available
+            if "bnb_4bit_compute_dtype" in bnb_config and bnb_config["bnb_4bit_compute_dtype"]:
+                compute_dtype = bnb_config["bnb_4bit_compute_dtype"]
+                if isinstance(compute_dtype, str):
+                    dtype_map = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}
+                    precision = dtype_map.get(compute_dtype, precision)
+                else:
+                    precision = compute_dtype
+                print(f"Using compute dtype from quant config: {precision}")
         elif (bnb_config["load_in_8bit"] == True):
             qbit = "8bit"
 
@@ -403,18 +487,40 @@ if __name__ == "__main__":
     if hasattr(layer_base,"language_model"):
         layer_base = layer_base.language_model
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model,
-#        trust_remote_code=True,
-        device_map="cuda",
-        padding=True,
-    )
+    # Load processor for vision models, tokenizer for text-only models
+    processor = None
+    if has_vision:
+        try:
+            processor = AutoProcessor.from_pretrained(
+                args.model,
+                device_map="cuda",
+                padding=True,
+            )
+            tokenizer = processor.tokenizer
+            print("Loaded processor for vision model")
+        except (IndexError, Exception) as e:
+            # If processor loading fails, fall back to tokenizer only
+            print(f"Could not load processor ({e}), falling back to tokenizer only")
+            has_vision = False
+            tokenizer = AutoTokenizer.from_pretrained(
+                args.model,
+#                trust_remote_code=True,
+                device_map="cuda",
+                padding=True,
+            )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model,
+#            trust_remote_code=True,
+            device_map="cuda",
+            padding=True,
+        )
 
     print("Computing refusal information...")
     results = {}
     results = compute_refusals(
         model, tokenizer, harmful_list, harmless_list,
-        args.projected, args.batch_size, args.clip
+        args.projected, args.batch_size, args.clip, processor, has_vision
     )
 
     print(f"Saving refusal information to {args.output}...")
