@@ -43,6 +43,7 @@ harmless_norms = []
 refusal_directions = []
 snratios = []
 signal_quality_estimates = []
+purity_ratios = []
 
 prior_harmful = None
 prior_harmless = None
@@ -84,8 +85,25 @@ for layer in range(layers):
     snr = refusal_norm / max(harmful_norm, harmless_norm)
     snratios.append(snr)
 
-    # 5. Signal quality
-    quality = snr * (1 - cos_sim)
+    # 5. Refusal purity
+    # Compute raw refusal direction (harmful - harmless)
+    raw_refusal_dir = harmful_mean - harmless_mean
+
+    # Normalize the harmless direction for projection
+    harmless_normalized = harmless_mean / harmless_mean.norm()
+
+    # Project refusal onto harmless: projection = (refusal · harmless_norm) * harmless_norm
+    projection = (refusal_dir @ harmless_normalized) * harmless_normalized
+
+    # Orthogonalized refusal direction (Gram-Schmidt)
+    refusal_orth = refusal_dir - projection
+
+    # Compute purity ratio
+    purity_ratio = refusal_orth.norm() / refusal_dir.norm()
+    purity_ratios.append(purity_ratio)
+
+    # 6. Signal quality
+    quality = snr * (1 - cos_sim) * purity_ratio
     signal_quality_estimates.append(quality)
 
     print(f"=== Refusal Direction Analysis (Layer {layer}) ===")
@@ -94,6 +112,7 @@ for layer in range(layers):
     print(f"Harmless mean norm:      {harmless_norm:.4f}")
     print(f"Refusal direction norm:  {refusal_norm:.4f}")
     print(f"Signal-to-noise ratio:   {snr:.4f}")
+    print(f"Refusal purity ratio:    {purity_ratio:.4f}")
     print(f"Est. Signal quality:     {quality:.4f}")
 
     prior_harmful = harmful_mean
@@ -130,12 +149,13 @@ ax2.set_title('Cosine Similarity vs Layer', fontsize=12, fontweight='bold')
 ax2.legend()
 ax2.grid(True, alpha=0.3)
 
-# Plot 3: Signal-to-Noise Ratio
+# Plot 3: Signal-to-Noise Ratio, Purity Ratio
 ax3 = axes[1, 0]
-ax3.plot(layers, snratios, 'darkorange', marker='d', linewidth=2, markersize=4)
+ax3.plot(layers, snratios, 'darkorange', label="Signal to noise", marker='d', linewidth=2, markersize=4)
+ax3.plot(layers, purity_ratios, 'darkgreen', label="Refusal purity", marker='d', linewidth=2, markersize=4)
 ax3.set_xlabel('Layer', fontsize=11)
-ax3.set_ylabel('SNR', fontsize=11)
-ax3.set_title('Signal-to-Noise Ratio vs Layer', fontsize=12, fontweight='bold')
+ax3.set_ylabel('Ratio', fontsize=11)
+ax3.set_title('Signal-to-Noise and Refusal Purity Ratios vs Layer', fontsize=12, fontweight='bold')
 ax3.grid(True, alpha=0.3)
 
 # Plot 4: Est. Signal Quality
