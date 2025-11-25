@@ -350,7 +350,7 @@ if __name__ == "__main__":
             args.model,
 #            trust_remote_code=True,
             dtype=precision,
-            device_map="cuda",
+            device_map="auto",
             attn_implementation="flash_attention_2" if args.flash_attn else None,
         )
     else:
@@ -359,7 +359,7 @@ if __name__ == "__main__":
 #            trust_remote_code=True,
             dtype=precision,
             low_cpu_mem_usage=True,
-            device_map="cuda",
+            device_map="auto",
             quantization_config=quant_config,
             attn_implementation="flash_attention_2" if args.flash_attn else None,
         )
