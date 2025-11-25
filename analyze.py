@@ -167,4 +167,5 @@ ax4.set_title('Estimated Signal Quality vs Layer', fontsize=12, fontweight='bold
 ax4.grid(True, alpha=0.3)
 
 plt.tight_layout()
+plt.savefig('refusal_analysis.png', dpi=150, bbox_inches='tight')
 plt.show()
