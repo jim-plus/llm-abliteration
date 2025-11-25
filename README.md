@@ -69,7 +69,7 @@ The `-c` option will put up some nice charting. Look toward middle to late middl
 ### Abliterate model
 
 ```
-python sharded_abliteration.py <abliteration_yaml_file>
+python sharded_ablate.py <abliteration_yaml_file>
 ```
 Look at the example YAML file to see how this is structured.
 YAML was opted for in order to allow more than one source layer for refusal direction measurement, and for different strategies to be applied per destination layer.
