@@ -19,7 +19,7 @@ For an explanation of abliteration, see: https://huggingface.co/blog/mlabonne/ab
 
 This repo enables norm-preserving biprojected abliteration. https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration
 
-Removal of the projected contribution during measurement is optional, but the other modifications to this implmentation abliteration are mandatory.
+Removal of the projected contribution during measurement is optional, as is removal of the projected contribution during ablation as well as norm preservation. This reverts default functionality to conventional abliteration, and enables independent exploration of the three options.
 
 ## Quick Start
 
