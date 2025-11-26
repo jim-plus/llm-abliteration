@@ -32,6 +32,8 @@ def welford_gpu_batched_multilayer_float32(
         text_config = text_config.text_config
     vocab_size = text_config.vocab_size
 
+    max_tokens = 1
+
     means = {layer_idx: None for layer_idx in layer_indices}
     counts = {layer_idx: 0 for layer_idx in layer_indices}
     dtype = model.dtype
@@ -65,7 +67,7 @@ def welford_gpu_batched_multilayer_float32(
         raw_output = model.generate(
             batch_input,
             attention_mask=batch_mask,
-            max_new_tokens=1,
+            max_new_tokens=max_tokens,
             return_dict_in_generate=True,
             output_hidden_states=True,
             pad_token_id=tokenizer.eos_token_id,
