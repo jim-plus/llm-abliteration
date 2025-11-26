@@ -57,7 +57,10 @@ python measure.py -m <path_to_your_model> -o <output_file> --data-harmful DATA_H
 For Chinese models, you can also specify `--deccp` to add certain topics to the "harmful" set to be evaluated.
 
 The measurement script autodetects 4-bit and 8-bit BitsAndBytes models and will attempt to run on them.
+One can also specify `--quant 4bit` and `--quant 8bit` to force on-the-fly bitsandbytes quantization of full-weight models.
 However, subsequent ablation needs to be performed on full-weight models.
+
+To orthogonalize the refusal direction against the harmless direction during measurement, specify `--projected`; otherwise the result will correspond to conventional abliteration.
 
 ### Analyze resulting measurements, with optional charting
 
@@ -73,6 +76,10 @@ python sharded_ablate.py <abliteration_yaml_file>
 ```
 Look at the example YAML file to see how this is structured.
 YAML was opted for in order to allow more than one source layer for refusal direction measurement, and for different strategies to be applied per destination layer.
+
+To orthogonalize the refusal direction against the harmless direction during measurement, specify `--projected`; otherwise the result will correspond to conventional abliteration.
+
+To preserve weight norms/magnitudes during ablation, specify `--normpreserve`; otherwise the result will correspond to conventional abliteration.
 
 ### Chat with your abliterated model
 
