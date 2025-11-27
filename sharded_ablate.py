@@ -33,6 +33,50 @@ PyTorch nn.Linear layers store weights as [out_features, in_features] - each row
 Safetensors (HuggingFace format) stores them as [in_features, out_features] - transposed!
 """
 
+# standard ablation
+def modify_tensor(
+    W: torch.Tensor, refusal_dir: torch.Tensor, scale_factor: float = 1.0,
+) -> torch.Tensor:
+    """
+    Modify weight tensor by ablating refusal direction while preserving row norms.
+    Returns a plain tensor (not a Parameter).
+    """
+    original_dtype = W.dtype
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    with torch.no_grad():
+        # Move tensors for computation
+        # Transpose here to convert from safetensors convention
+        W_gpu = W.to(device, dtype=torch.float32, non_blocking=True).T
+        refusal_dir_gpu = refusal_dir.to(device, dtype=torch.float32, non_blocking=True)
+
+        # Ensure refusal_dir is a 1-dimensional tensor
+        if refusal_dir_gpu.dim() > 1:
+            refusal_dir_gpu = refusal_dir_gpu.view(-1)
+        
+        # Normalize refusal direction
+        refusal_normalized = torch.nn.functional.normalize(refusal_dir_gpu, dim=0)
+
+        # Apply abliteration
+        # Compute dot product of each row with refusal direction
+        projection = torch.matmul(W_gpu, refusal_normalized)  # [in_features]
+        
+        # Subtract the projection
+        W_gpu -= scale_factor * torch.outer(projection, refusal_normalized)
+        
+        # Convert back to original dtype and CPU
+        # Transpose here to return safetensors convention
+        result = W_gpu.T.to('cpu', dtype=original_dtype, non_blocking=True)
+
+        # Cleanup
+        del W_gpu, refusal_dir_gpu, refusal_normalized, projection
+        
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+
+    return result.detach().clone()
+
 
 def modify_tensor_norm_preserved(
     W: torch.Tensor, refusal_dir: torch.Tensor, scale_factor: float = 1.0,
@@ -80,8 +124,8 @@ def modify_tensor_norm_preserved(
         result = W_modified.T.to('cpu', dtype=original_dtype, non_blocking=True)
 
         # Cleanup
-        del W_gpu, refusal_dir_gpu, refusal_normalized
-        del W_direction, W_direction_new, W_norm, projection, W_modified
+        del W_gpu, refusal_dir_gpu, refusal_normalized, projection
+        del W_direction, W_direction_new, W_norm, W_modified
         
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -95,6 +139,8 @@ def ablate_by_layers_sharded(
     measures: dict,
     marching_orders: list,
     output_path: str,
+    norm_preserve: bool,
+    projected: bool,
 ) -> None:
     """
     Memory-efficient ablation for sharded models.
@@ -186,13 +232,19 @@ def ablate_by_layers_sharded(
                     refusal_dir = measures[f'refuse_{measurement}'].float()
                     harmless_dir = measures[f'harmless_{layer}'].float()
                     
-                    # Normalize harmless direction
-                    harmless_normalized = torch.nn.functional.normalize(harmless_dir, dim=0)
+
+                    if projected:
+                        # Here we orthogonalize refusal with respect to harmless direction.
+                        # We compute the second orthogonalized vector from Gram-Schmitt orthonormalization.
+
+                        # Normalize harmless direction
+                        harmless_normalized = torch.nn.functional.normalize(harmless_dir, dim=0)
                     
-                    # Project and subtract to refine refusal direction
-                    projection_scalar = refusal_dir @ harmless_normalized
-                    refined_refusal_dir = refusal_dir - projection_scalar * harmless_normalized
-                    refusal_dir = refined_refusal_dir.to(precision)
+                        # Project and subtract to refine refusal direction
+                        projection_scalar = refusal_dir @ harmless_normalized
+                        refined_refusal_dir = refusal_dir - projection_scalar * harmless_normalized
+                        refusal_dir = refined_refusal_dir.to(precision)
+                        del harmless_normalized, refined_refusal_dir
                     
                     # Apply sparsity
                     if sparsity > 0.0:
@@ -202,14 +254,21 @@ def ablate_by_layers_sharded(
                     refusal_dir = torch.nn.functional.normalize(refusal_dir, dim=-1)
                     
                     # Apply modification
-                    state_dict[key] = modify_tensor_norm_preserved(
-                        state_dict[key],
-                        refusal_dir,
-                        scale,
-                    ).contiguous()
+                    if norm_preserve:
+                        state_dict[key] = modify_tensor_norm_preserved(
+                            state_dict[key],
+                            refusal_dir,
+                            scale,
+                        ).contiguous()
+                    else:
+                        state_dict[key] = modify_tensor(
+                            state_dict[key],
+                            refusal_dir,
+                            scale,
+                        ).contiguous()
                     
                     # Clean up
-                    del refusal_dir, harmless_dir, harmless_normalized, refined_refusal_dir
+                    del refusal_dir, harmless_dir
                     gc.collect()
             
             # Save modified shard
@@ -267,6 +326,18 @@ def main():
         type=str,
         help='Path to a YAML configuration file',
     )
+    parser.add_argument(
+        '--normpreserve',
+        action="store_true",
+        default=False,
+        help='Preserve norms/magnitudes when ablating refusal',
+    )
+    parser.add_argument(
+        '--projected',
+        action="store_true",
+        default=False,
+        help='Project refusal against harmless direction and orthogonalize',
+    )
     
     args = parser.parse_args()
     
@@ -286,6 +357,8 @@ def main():
     print(f"Measurements: {measurement_file}")
     print(f"Output directory: {output_dir}")
     print(f"Number of ablations: {len(ablations)}")
+    print(f"Norm preservation: {args.normpreserve}")
+    print(f"Projected: {args.projected}")
     print("=" * 60)
     
     # Load measurements
@@ -317,6 +390,8 @@ def main():
         measures=measures,
         marching_orders=orders,
         output_path=output_dir,
+        norm_preserve=args.normpreserve,
+        projected=args.projected,
     )
     
     print("\n" + "=" * 60)
