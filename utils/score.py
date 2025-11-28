@@ -4,6 +4,7 @@ from tqdm import tqdm
 from transformers.modeling_utils import PreTrainedModel
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
+from utils.device import clear_device_cache
 
 def extract_hidden_states_gpu(raw_output) -> dict:
     processed = {}
@@ -87,7 +88,7 @@ def scoring_gpu_batched(
 
 #        del gpu_output, batch_input
         del batch_input
-        torch.cuda.empty_cache()
+        clear_device_cache()
 
     return_dict = {}
     return_dict["scores"] = scores
@@ -154,7 +155,7 @@ def score_refusals(
         )
         for inst in candidate_list
     ]
-    torch.cuda.empty_cache()
+    clear_device_cache()
     gc.collect()
 
     num_layers = len(model.model.layers)
@@ -164,7 +165,7 @@ def score_refusals(
 
     results = scoring_gpu_batched(candidate_tokens, "Generating candidate outputs", model, tokenizer, layer_idx, refusal_dir, bias_term, pos, inference_batch_size)
 
-    torch.cuda.empty_cache()
+    clear_device_cache()
     gc.collect()
 
     return results
