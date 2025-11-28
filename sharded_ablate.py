@@ -10,6 +10,7 @@ from safetensors.torch import load_file, save_file
 from tqdm import tqdm
 from transformers import AutoConfig
 from transformers.utils import cached_file
+from utils.device import clear_device_cache, get_preferred_device, synchronize_device
 
 
 def magnitude_sparsify(tensor: torch.Tensor, fraction: float) -> torch.Tensor:
@@ -42,7 +43,7 @@ def modify_tensor(
     Returns a plain tensor (not a Parameter).
     """
     original_dtype = W.dtype
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = get_preferred_device()
 
     with torch.no_grad():
         # Move tensors for computation
@@ -70,10 +71,9 @@ def modify_tensor(
 
         # Cleanup
         del W_gpu, refusal_dir_gpu, refusal_normalized, projection
-        
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+
+        synchronize_device(device)
+        clear_device_cache()
 
     return result.detach().clone()
 
@@ -86,7 +86,7 @@ def modify_tensor_norm_preserved(
     Returns a plain tensor (not a Parameter).
     """
     original_dtype = W.dtype
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = get_preferred_device()
 
     with torch.no_grad():
         # Move tensors for computation
@@ -126,10 +126,9 @@ def modify_tensor_norm_preserved(
         # Cleanup
         del W_gpu, refusal_dir_gpu, refusal_normalized, projection
         del W_direction, W_direction_new, W_norm, W_modified
-        
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+
+        synchronize_device(device)
+        clear_device_cache()
 
     return result.detach().clone()
 
@@ -278,8 +277,7 @@ def ablate_by_layers_sharded(
             # Clean up
             del state_dict
             gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            clear_device_cache()
             
         else:
             # Just copy unmodified shards (no need to load)
