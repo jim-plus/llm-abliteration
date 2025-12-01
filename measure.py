@@ -172,7 +172,8 @@ def compute_refusals(
         results[f'harmful_{layer}'] = harmful_mean
         harmless_mean = harmless_means[layer]
         results[f'harmless_{layer}'] = harmless_mean
-        refusal_dir = harmful_mean - harmless_mean
+        # perform subtraction in 64-bit float to cope with high cosine similarity scenario
+        refusal_dir = (harmful_mean.double() - harmless_mean.double()).float()
 
         if projected:
             # Compute Gram-Schmidt second orthogonal vector/direction to remove harmless direction interference from refusal direction
