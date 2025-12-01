@@ -2,6 +2,7 @@ import gc
 import torch
 from argparse import ArgumentParser
 from transformers import AutoModelForCausalLM, PreTrainedModel, BitsAndBytesConfig
+from utils.device import clear_device_cache, get_preferred_device, resolve_device_map
 
 
 def extract_layer_info(
@@ -111,7 +112,7 @@ def main():
         "-d",
         type=str,
         default="auto",
-        choices=["auto", "cpu", "cuda"],
+        choices=["auto", "cpu", "cuda", "mps"],
         help="Device to use",
     )
     quant = parser.add_mutually_exclusive_group()
@@ -128,6 +129,12 @@ def main():
         help="Load model in 8-bit precision using bitsandbytes",
     )
     args = parser.parse_args()
+    device = get_preferred_device(args.device)
+    device_map = resolve_device_map(args.device)
+
+    if device == "mps" and (args.load_in_4bit or args.load_in_8bit):
+        raise RuntimeError("BitsAndBytes quantization is not supported on MPS. Please run without quantization or use CUDA.")
+
     if args.load_in_4bit:
         quant_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -145,7 +152,7 @@ def main():
     print("Loading model A...")
     model_a = AutoModelForCausalLM.from_pretrained(
         args.a,
-        device_map=args.device,
+        device_map=device_map,
         low_cpu_mem_usage=True,
         trust_remote_code=True,
         quantization_config=quant_config,
@@ -155,12 +162,12 @@ def main():
 
     del model_a
     gc.collect()
-    torch.cuda.empty_cache()
+    clear_device_cache()
 
     print("Loading model B...")
     model_b = AutoModelForCausalLM.from_pretrained(
         args.b,
-        device_map=args.device,
+        device_map=device_map,
         low_cpu_mem_usage=True,
         trust_remote_code=True,
         quantization_config=quant_config,
@@ -171,7 +178,7 @@ def main():
 
     del model_b
     gc.collect()
-    torch.cuda.empty_cache()
+    clear_device_cache()
 
     print_differences(diff)
 
