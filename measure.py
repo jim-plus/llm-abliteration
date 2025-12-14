@@ -13,6 +13,7 @@ from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokeniz
 from utils.data import load_data
 from utils.models import has_tied_weights
 from utils.clip import magnitude_clip
+from utils.device import clear_device_cache, get_preferred_device, resolve_device_map
 
 
 def welford_gpu_batched_multilayer_float32(
@@ -99,15 +100,15 @@ def welford_gpu_batched_multilayer_float32(
             del current_hidden
 
         del hidden_states
-        torch.cuda.empty_cache()
+        clear_device_cache()
 
     # Cast back to model dtype and move to CPU
     return_dict = {
-        layer_idx: mean.to(device="cpu") 
+        layer_idx: mean.to(device="cpu")
         for layer_idx, mean in means.items()
     }
     del means
-    torch.cuda.empty_cache()
+    clear_device_cache()
     return return_dict
 
 def format_chats(
@@ -151,10 +152,10 @@ def compute_refusals(
 
     harmful_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmful_list, processor=processor)
     harmful_means = welford_gpu_batched_multilayer_float32(
-        harmful_formatted, "Generating harmful outputs", model, tokenizer, 
+        harmful_formatted, "Generating harmful outputs", model, tokenizer,
         focus_layers, pos, inference_batch_size, clip, processor, is_vision_model
     )
-    torch.cuda.empty_cache()
+    clear_device_cache()
     del harmful_formatted
     harmless_formatted = format_chats(tokenizer=tokenizer, prompt_list=harmless_list, processor=processor)
     harmless_means = welford_gpu_batched_multilayer_float32(
@@ -189,7 +190,7 @@ def compute_refusals(
 
         results[f'refuse_{layer}'] = refusal_dir
 
-    torch.cuda.empty_cache()
+    clear_device_cache()
     gc.collect()
     return results
 
@@ -270,6 +271,9 @@ if __name__ == "__main__":
     torch.inference_mode()
     torch.set_grad_enabled(False)
 
+    device = get_preferred_device()
+    device_map = resolve_device_map()
+
     model = args.model
     model_config = AutoConfig.from_pretrained(model)
     model_type = getattr(model_config,"model_type")
@@ -280,9 +284,14 @@ if __name__ == "__main__":
     elif hasattr(model_config, "dtype") and model_config.dtype is not None:
         precision = model_config.dtype
     else:
-        # Fallback to bfloat16 if available, otherwise float16
-        precision = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    
+        # Fallback to bfloat16 on CUDA (if supported), otherwise float32 on MPS/CPU, float16 on CUDA
+        if device == "cuda" and torch.cuda.is_bf16_supported():
+            precision = torch.bfloat16
+        elif device == "cuda":
+            precision = torch.float16
+        else:
+            precision = torch.float32
+
     # Convert string dtype to torch dtype if needed
     if isinstance(precision, str):
         dtype_map = {
@@ -293,7 +302,10 @@ if __name__ == "__main__":
             "bf16": torch.bfloat16,
             "fp32": torch.float32,
         }
-        precision = dtype_map.get(precision, torch.bfloat16)
+        precision = dtype_map.get(
+            precision,
+            torch.bfloat16 if device == "cuda" and torch.cuda.is_bf16_supported() else torch.float32,
+        )
 
     has_vision = False
     if hasattr(model_config,"vision_config"):
@@ -304,10 +316,17 @@ if __name__ == "__main__":
 
     quant_config = None
     qbit = args.quant_measure
+
+    if device == "mps" and qbit:
+        print("BitsAndBytes quantization is not supported on MPS; disabling requested quantization.")
+        qbit = None
+
     # autodetect BitsAndBytes quant; overrides option
     if hasattr(model_config,"quantization_config"):
         bnb_config = getattr(model_config, "quantization_config")
         if (bnb_config["load_in_4bit"] == True):
+            if device == "mps":
+                raise RuntimeError("BitsAndBytes 4-bit models are not supported on MPS. Please use CPU/CUDA or load full-precision weights.")
             qbit = "4bit"
             # Override precision with compute dtype from quant config if available
             if "bnb_4bit_compute_dtype" in bnb_config and bnb_config["bnb_4bit_compute_dtype"]:
@@ -319,6 +338,8 @@ if __name__ == "__main__":
                     precision = compute_dtype
                 print(f"Using compute dtype from quant config: {precision}")
         elif (bnb_config["load_in_8bit"] == True):
+            if device == "mps":
+                raise RuntimeError("BitsAndBytes 8-bit models are not supported on MPS. Please use CPU/CUDA or load full-precision weights.")
             qbit = "8bit"
 
     if qbit == "4bit":
@@ -347,14 +368,15 @@ if __name__ == "__main__":
         deccp_list = load_dataset("augmxnt/deccp", split="censored")
         harmful_list += deccp_list["text"]
 
-    # Assume "cuda" device for now; refactor later if there's demand for other GPU-accelerated platforms
+    attn_impl = "flash_attention_2" if args.flash_attn and device == "cuda" else None
+
     if hasattr(model_config, "quantization_config"):
         model = AutoModelForCausalLM.from_pretrained(
             args.model,
 #            trust_remote_code=True,
             dtype=precision,
-            device_map="auto",
-            attn_implementation="flash_attention_2" if args.flash_attn else None,
+            device_map=device_map,
+            attn_implementation=attn_impl,
         )
     else:
         model = model_loader.from_pretrained(
@@ -362,9 +384,9 @@ if __name__ == "__main__":
 #            trust_remote_code=True,
             dtype=precision,
             low_cpu_mem_usage=True,
-            device_map="auto",
+            device_map=device_map,
             quantization_config=quant_config,
-            attn_implementation="flash_attention_2" if args.flash_attn else None,
+            attn_implementation=attn_impl,
         )
     model.requires_grad_(False)
     if has_tied_weights(model_type):
@@ -381,7 +403,7 @@ if __name__ == "__main__":
         try:
             processor = AutoProcessor.from_pretrained(
                 args.model,
-                device_map="cuda",
+                device_map=device_map,
                 padding=True,
             )
             tokenizer = processor.tokenizer
@@ -393,14 +415,14 @@ if __name__ == "__main__":
             tokenizer = AutoTokenizer.from_pretrained(
                 args.model,
 #                trust_remote_code=True,
-                device_map="cuda",
+                device_map=device_map,
                 padding=True,
             )
     else:
         tokenizer = AutoTokenizer.from_pretrained(
             args.model,
 #            trust_remote_code=True,
-            device_map="cuda",
+            device_map=device_map,
             padding=True,
         )
 
