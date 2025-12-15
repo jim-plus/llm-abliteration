@@ -4,22 +4,25 @@ Make abliterated models using Transformers, easy and fast. Now faster with batch
 
 ## Introduction
 
-There exist directions that cause LLMs to refuse users' input. Abliteration is a technique that can approximate the most significant refusal direction by contrasting harmful and harmless prompts, and then remove/ablate the direction from the model. This is a proof-of-concept implementation to explore the removal refusals from an LLM without the use of TransformerLens, although some GPU acceleration has been implemented.
+There exist directions that cause LLMs to refuse users' input. Abliteration is a technique that can approximate the most significant refusal direction by contrasting harmful and harmless prompts, and then remove/ablate the direction from the model. This is a proof-of-concept implementation to explore the removal refusals from an LLM without the use of TransformerLens.
 
-The code in various forms has been tested on Llama-3.2, Qwen2.5-Coder, Ministral-8b, Mistral-7B-Instruct-v0.2, gemma-3-27b-it, and Mistral-Nemo-Instruct-2407.
+Architectures: Both conventional (dense) and selected MoE architectures are now supported. The code in various forms has been tested on Llama-3.2, Qwen2.5-Coder, Ministral-8b, Mistral-7B-Instruct-v0.2, gemma-3-27b-it, and Mistral-Nemo-Instruct-2407.
 
-VRAM/RAM requirements: This codebase reflects efforts to reduce VRAM usage. You can abliterate whatever any model provided it fits within VRAM. Loading model in 4-bit precision using bitsandbytes is possible and recommended for large models when VRAM is limited. It is assumed that there is enough cpu memory to load the **bf16** (or full weight) model; the method for ablating the refusal vector could be enhanced to perform lazy-loading in the future to reduce this requirement.
+VRAM/RAM requirements: This codebase reflects efforts to reduce VRAM usage. You can abliterate whatever any model provided it fits within VRAM. Loading model in 4-bit precision using bitsandbytes is possible and recommended for large models when VRAM is limited.
+Ablation loads in one safetensors shard at a time into CPU memory; at most one layer is ablated within VRAM, allowing ablation of large models.
 
-CUDA is assumed to be available. The original abliteration paper and code used TransformerLens, and measured resid_pre, resid_mid, and resid_post. Failspy's code measured resid_pre and resid_post. Sumandora's code based on Transformers accesses the equivalent of resid_post with hidden_states.
+Compute requirements: CUDA or Apple Metal is assumed to be available. CPU-only is impractical due to the inference requirement, though it can theoretically be done.
 
 > [!NOTE]
-> Abliteration does not guarantee full removal of censorship. Abliteration doesn't necessarily mean the model is completely uncensored; a properly abliterated model will not explicitly refuse, theoretically, based on the nature of refusals captured in datasets used for abliteration.
+> Abliteration does not guarantee full removal of censorship, as refusal direction is diffuse. Abliteration doesn't necessarily mean the model is completely uncensored; a properly abliterated model will not explicitly refuse, theoretically, based on the nature of refusals captured in datasets used for abliteration.
+
+The original abliteration paper and code used TransformerLens, measuring resid_pre, resid_mid, and resid_post. Failspy's code measured resid_pre and resid_post. Sumandora's code based on Transformers accesses the equivalent of resid_post with hidden_states; this codebase is ultimately descended from that.
 
 For an explanation of abliteration, see: https://huggingface.co/blog/mlabonne/abliteration
 
-This repo enables norm-preserving biprojected abliteration. https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration
+This repo enables norm-preserving biprojected abliteration, a combination of geometric modification to abliteration to reduce the impact on model performance. https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration
 
-Removal of the projected contribution during measurement is optional, as is removal of the projected contribution during ablation as well as norm preservation. This reverts default functionality to conventional abliteration, and enables independent exploration of the three options.
+Removal of the projected contribution during measurement to orthogonalize the refusal direction is optional, as is removal of the projected contribution during ablation as well as norm preservation. Default functionality is conventional abliteration, and enables independent exploration of the three options.
 
 ## Quick Start
 
@@ -126,3 +129,6 @@ If you have limited VRAM, try loading the model as a 4-bit or 8-bit BitsAndBytes
 - [AUGMXNT/deccp](https://github.com/AUGMXNT/deccp)
 - [huihui-ai](https://huggingface.co/huihui-ai)
 - [Refusal in LLMs is mediated by a single direction](https://github.com/andyrdt/refusal_direction)
+
+- Thanks to @AesSedai for initial MoE support
+- Thanks to @otarkhan for Apple Metal support
