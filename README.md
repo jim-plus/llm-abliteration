@@ -22,7 +22,7 @@ For an explanation of abliteration, see: https://huggingface.co/blog/mlabonne/ab
 
 This repo enables norm-preserving biprojected abliteration, a combination of geometric modification to abliteration to reduce the impact on model performance. https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration
 
-Removal of the projected contribution during measurement to orthogonalize the refusal direction is optional, as is removal of the projected contribution during ablation as well as norm preservation. Default functionality is conventional abliteration, and enables independent exploration of the three options.
+Removal of the projected contribution during measurement to orthogonalize the refusal direction is optional, as is removal of the projected contribution during ablation as well as norm preservation. Default functionality is conventional abliteration, and enables independent exploration of the three options. Some models may not respond well to norm presrevation.
 
 ## Quick Start
 
