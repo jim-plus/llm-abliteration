@@ -3,9 +3,11 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
+    AutoConfig,
 )
 from argparse import ArgumentParser
 import torch
+from utils.device import get_preferred_device, resolve_device_map
 
 parser = ArgumentParser()
 parser.add_argument(
@@ -15,15 +17,15 @@ parser.add_argument(
     "--precision",
     "-p",
     type=str,
-    default="fp16",
-    choices=["fp16", "bf16", "fp32"],
-    help="Precision of model",
+    default="auto",
+    choices=["auto", "fp16", "bf16", "fp32"],
+    help="Precision to load the model. 'auto' tries model config, then chooses a safe default for the device.",
 )
 parser.add_argument(
     "--device",
     "-d",
     type=str,
-    choices=["auto", "cuda", "cpu"],
+    choices=["auto", "cuda", "cpu", "mps"],
     default="auto",
     help="Target device to process abliteration. Warning, bitsandbytes quantization DOES NOT support CPU",
 )
@@ -50,12 +52,53 @@ args = parser.parse_args()
 
 
 if __name__ == "__main__":
-    if args.precision == "fp16":
+    device = get_preferred_device(args.device)
+    device_map = resolve_device_map(args.device)
+
+    # Resolve precision with sensible defaults
+    if args.precision == "auto":
+        model_config = AutoConfig.from_pretrained(args.model)
+        precision = getattr(model_config, "torch_dtype", None) or getattr(
+            model_config, "dtype", None
+        )
+        if precision is None:
+            if device == "cuda" and torch.cuda.is_bf16_supported():
+                precision = torch.bfloat16
+            elif device == "mps":
+                precision = torch.float32  # float16 on MPS is unstable
+            elif device == "cuda":
+                precision = torch.float16
+            else:
+                precision = torch.float32
+    elif args.precision == "fp16":
         precision = torch.float16
     elif args.precision == "bf16":
         precision = torch.bfloat16
     elif args.precision == "fp32":
         precision = torch.float32
+
+    if isinstance(precision, str):
+        dtype_map = {
+            "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
+            "float32": torch.float32,
+            "fp16": torch.float16,
+            "bf16": torch.bfloat16,
+            "fp32": torch.float32,
+        }
+        precision = dtype_map.get(
+            precision,
+            torch.bfloat16 if device == "cuda" and torch.cuda.is_bf16_supported() else torch.float32,
+        )
+
+    # Avoid fp16 instability on MPS unless user forced fp16 explicitly
+    if device == "mps" and precision == torch.float16:
+        print("! Switching MPS to float32 for stability (fp16 can produce NaNs on MPS).")
+        precision = torch.float32
+
+    # MPS cannot run bitsandbytes; keep old CUDA/CPU behavior untouched
+    if device == "mps" and (args.load_in_4bit or args.load_in_8bit):
+        raise RuntimeError("BitsAndBytes quantization is not supported on MPS. Please disable --load-in-4bit/--load-in-8bit or use CUDA.")
 
     if args.load_in_4bit:
         quant_config = BitsAndBytesConfig(
@@ -77,12 +120,12 @@ if __name__ == "__main__":
         trust_remote_code=True,
         dtype=precision,
         low_cpu_mem_usage=True,
-        device_map=args.device,
+        device_map=device_map,
         quantization_config=quant_config,
-        attn_implementation="flash_attention_2" if args.flash_attn else None,
+        attn_implementation="flash_attention_2" if args.flash_attn and device == "cuda" else None,
     )
     tokenizer = AutoTokenizer.from_pretrained(
-        args.model, trust_remote_code=True, device_map=args.device
+        args.model, trust_remote_code=True
     )
 
     conversation = []
