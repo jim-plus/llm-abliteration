@@ -180,6 +180,7 @@ def ablate_by_layers_sharded(
     output_path: str,
     norm_preserve: bool,
     projected: bool,
+    invert: bool,
 ) -> None:
     """
     Memory-efficient ablation for sharded models.
@@ -325,6 +326,9 @@ def ablate_by_layers_sharded(
                     # Normalize
                     refusal_dir = torch.nn.functional.normalize(refusal_dir, dim=-1)
 
+                    if invert:
+                        scale = -scale
+
                     # Apply modification
                     if norm_preserve:
                         state_dict[key] = modify_tensor_norm_preserved(
@@ -393,6 +397,12 @@ def main():
         help='Path to a YAML configuration file',
     )
     parser.add_argument(
+        '--invert',
+        action="store_true",
+        default=False,
+        help='Invert from ablation to addition',
+    )    
+    parser.add_argument(
         '--normpreserve',
         action="store_true",
         default=False,
@@ -458,6 +468,7 @@ def main():
         output_path=output_dir,
         norm_preserve=args.normpreserve,
         projected=args.projected,
+        invert=args.invert,
     )
 
     print("\n" + "=" * 60)
