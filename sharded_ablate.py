@@ -48,6 +48,7 @@ def modify_tensor(
     with torch.no_grad():
         # Move tensors for computation
         W_gpu = W.to(device, dtype=torch.float32, non_blocking=True)
+        W_rank = W.dim()
         refusal_dir_gpu = refusal_dir.to(device, dtype=torch.float32, non_blocking=True)
 
         # Ensure refusal_dir is a 1-dimensional tensor
@@ -57,20 +58,24 @@ def modify_tensor(
         # Normalize refusal direction
         refusal_normalized = torch.nn.functional.normalize(refusal_dir_gpu, dim=0)
 
+        del refusal_dir_gpu # cleanup
+
         # Transpose here to convert from safetensors convention
         # Handle Shapes: We want the "Output" dimension to be the last dimension for projection.
         # Refusal Vector lives in the Output Space.
 
         # Case A: Standard Linear [Out, In] -> Transpose to [In, Out]
-        if W_gpu.dim() == 2:
+        if W_rank == 2:
             W_working = W_gpu.T
         # Case B: Fused Experts [Experts, Out, In] -> Permute to [Experts, In, Out]
         # ex: GPT-OSS-20b
-        elif W_gpu.dim() == 3:
+        elif W_rank == 3:
             W_working = W_gpu.permute(0, 2, 1)
         else:
             print(f"Warning: Unsupported tensor shape {W_gpu.shape} - Skipping ablation.")
             return W
+        
+        del W_gpu   # cleanup
 
         # Apply abliteration
         # Compute dot product of each row with refusal direction
@@ -82,16 +87,16 @@ def modify_tensor(
         W_working -= scale_factor * (projection.unsqueeze(-1) * refusal_normalized)
 
         # Transpose here to return safetensors convention
-        if W_gpu.dim() == 2:
+        if W_rank == 2:
             result = W_working.T
-        elif W_gpu.dim() == 3:
+        elif W_rank == 3:
             result = W_working.permute(0, 2, 1)
 
         # Convert back to original dtype and CPU
         result = result.to('cpu', dtype=original_dtype, non_blocking=True)
 
         # Cleanup
-        del W_gpu, refusal_dir_gpu, refusal_normalized, projection, W_working
+        del refusal_normalized, projection, W_working
 
         synchronize_device(device)
         clear_device_cache()
@@ -112,6 +117,7 @@ def modify_tensor_norm_preserved(
     with torch.no_grad():
         # Move tensors for computation
         W_gpu = W.to(device, dtype=torch.float32, non_blocking=True)
+        W_rank = W.dim()
         refusal_dir_gpu = refusal_dir.to(device, dtype=torch.float32, non_blocking=True)
 
         # Ensure refusal_dir is a 1-dimensional tensor
@@ -121,25 +127,31 @@ def modify_tensor_norm_preserved(
         # Normalize refusal direction
         refusal_normalized = torch.nn.functional.normalize(refusal_dir_gpu, dim=0)
 
+        del refusal_dir_gpu # cleanup
+
         # Transpose here to convert from safetensors convention
         # Handle Shapes: We want the "Output" dimension to be the last dimension for projection.
         # Refusal Vector lives in the Output Space.
 
         # Case A: Standard Linear [Out, In] -> Transpose to [In, Out]
-        if W_gpu.dim() == 2:
+        if W_rank == 2:
             W_working = W_gpu.T
         # Case B: Fused Experts [Experts, Out, In] -> Permute to [Experts, In, Out]
         # ex: GPT-OSS-20b
-        elif W_gpu.dim() == 3:
+        elif W_rank == 3:
             W_working = W_gpu.permute(0, 2, 1)
         else:
             print(f"Warning: Unsupported tensor shape {W_gpu.shape} - Skipping ablation.")
             return W
+        
+        del W_gpu   # cleanup
 
         # Decompose weight matrix
         # W_working is [in_features, out_features] or [Experts, in_features, out_features]
         W_norm = torch.norm(W_working, dim=-1, keepdim=True)  # [out_features, 1]
         W_direction = torch.nn.functional.normalize(W_working, dim=-1)  # normalized per output neuron
+
+        del W_working   # cleanup
 
         # Apply abliteration to the DIRECTIONAL component
         # Compute dot product of each row with refusal direction
@@ -155,17 +167,17 @@ def modify_tensor_norm_preserved(
         W_modified = W_norm * W_direction_new
 
         # Transpose here to return safetensors convention
-        if W_gpu.dim() == 2:
+        if W_rank == 2:
             result = W_modified.T
-        elif W_gpu.dim() == 3:
+        elif W_rank == 3:
             result = W_modified.permute(0, 2, 1)
 
         # Convert back to original dtype and CPU
         result = result.to('cpu', dtype=original_dtype, non_blocking=True)
 
         # Cleanup
-        del W_gpu, refusal_dir_gpu, refusal_normalized, projection
-        del W_direction, W_direction_new, W_norm, W_modified, W_working
+        del refusal_normalized, projection
+        del W_direction, W_direction_new, W_norm, W_modified
 
         synchronize_device(device)
         clear_device_cache()
