@@ -447,6 +447,7 @@ def main():
     print(f"Number of ablations: {len(ablations)}")
     print(f"Norm preservation: {args.normpreserve}")
     print(f"Projected: {args.projected}")
+    print(f"Invert ablation: {args.invert}")
     print("=" * 60)
 
     # Load measurements
