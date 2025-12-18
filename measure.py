@@ -142,9 +142,12 @@ def compute_refusals(
     is_vision_model: bool = False,  # Add flag for vision models
 ) -> torch.Tensor:
     # dtype = model.dtype
-    layer_base = model.model
-    if hasattr(layer_base,"language_model"):
-        layer_base = layer_base.language_model
+    if hasattr(model, "language_model"):
+        layer_base = model.language_model.model
+    else:
+        layer_base = model.model
+        if hasattr(layer_base, "language_model"):
+            layer_base = layer_base.language_model
     num_layers = len(layer_base.layers)
     pos = -1
     # option for layer sweep
@@ -393,9 +396,12 @@ if __name__ == "__main__":
         model.tie_weights()
 
     # point to base of language model
-    layer_base = model.model
-    if hasattr(layer_base,"language_model"):
-        layer_base = layer_base.language_model
+    if hasattr(model, "language_model"):
+        layer_base = model.language_model.model
+    else:
+        layer_base = model.model
+        if hasattr(layer_base, "language_model"):
+            layer_base = layer_base.language_model
 
     # Load processor for vision models, tokenizer for text-only models
     processor = None
