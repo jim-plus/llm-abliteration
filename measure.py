@@ -435,3 +435,18 @@ if __name__ == "__main__":
 
     print(f"Saving refusal information to {args.output}...")
     torch.save(results, args.output)
+    
+    # unload model to release VRAM
+    
+    print("Unloading model and clearing memory...") 
+    del model
+    del tokenizer
+    if processor is not None:
+        del processor
+    del results
+    gc.collect()
+    clear_device_cache()
+    if device == "cuda":
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    print("Model unloaded successfully.")
