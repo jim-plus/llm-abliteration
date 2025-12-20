@@ -194,7 +194,7 @@ def compute_refusals(
     gc.collect()
     return results
     
-def clean_up():
+def clean_up(model, tokenizer, processor, results):
     # unload model to release VRAM    
     print("Unloading model and clearing memory...") 
     del model
@@ -450,5 +450,5 @@ if __name__ == "__main__":
 
     print(f"Saving refusal information to {args.output}...")
     torch.save(results, args.output)
-    clean_up()
+    clean_up(model, tokenizer, processor, results)
 
