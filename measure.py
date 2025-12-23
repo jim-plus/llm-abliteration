@@ -193,6 +193,18 @@ def compute_refusals(
     clear_device_cache()
     gc.collect()
     return results
+    
+def clean_up(model, tokenizer, processor, results):
+    # unload model to release VRAM    
+    print("Unloading model and clearing memory...") 
+    del model
+    del tokenizer
+    if processor is not None:
+        del processor
+    del results
+    gc.collect()
+    clear_device_cache()
+    print("Model unloaded successfully.")
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Measure models for analysis and abliteration")
@@ -435,3 +447,5 @@ if __name__ == "__main__":
 
     print(f"Saving refusal information to {args.output}...")
     torch.save(results, args.output)
+    clean_up(model, tokenizer, processor, results)
+
