@@ -204,9 +204,6 @@ def clean_up(model, tokenizer, processor, results):
     del results
     gc.collect()
     clear_device_cache()
-    if device == "cuda":
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
     print("Model unloaded successfully.")
 
 if __name__ == "__main__":
