@@ -380,7 +380,7 @@ def ablate_by_layers_sharded(
     config_files = [
         "config.json", "tokenizer_config.json", "tokenizer.json",
         "special_tokens_map.json", "generation_config.json",
-        "tokenizer.model", "vocab.json", "merges.txt",
+        "tokenizer.model", "vocab.json", "merges.txt", "processor_config.json",
         "added_tokens.json", "preprocessor_config.json", "chat_template.json",
         "configuration_deepseek_v3.py", "modeling_deepseek_v3.py",
         "configuration_glm4_moe.py", "modeling_glm4_moe.py"
