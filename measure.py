@@ -13,7 +13,7 @@ from transformers import PreTrainedModel, PreTrainedTokenizer, PreTrainedTokeniz
 from utils.data import load_data
 from utils.models import has_tied_weights
 from utils.clip import magnitude_clip
-from utils.device import clear_device_cache, get_preferred_device, resolve_device_map
+from utils.device import clear_device_cache, get_preferred_device, resolve_device_map, synchronize_device
 
 
 def welford_gpu_batched_multilayer_float32(
@@ -193,6 +193,26 @@ def compute_refusals(
     clear_device_cache()
     gc.collect()
     return results
+
+
+def clean_up() -> None:
+    """
+    Release VRAM/RAM after measurement is complete.
+
+    Call this after deleting model/tokenizer/results in your code:
+        del model, tokenizer, processor, results
+        clean_up()
+
+    Note: Callers must delete their own references to objects before calling
+    this function. Python's scoping rules mean we cannot delete caller's
+    variables from within a function.
+    """
+    gc.collect()
+    synchronize_device()
+    clear_device_cache()
+    gc.collect()  # Second pass for any refs broken by cache clear
+    print("Memory cleared successfully.")
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Measure models for analysis and abliteration")
@@ -435,3 +455,8 @@ if __name__ == "__main__":
 
     print(f"Saving refusal information to {args.output}...")
     torch.save(results, args.output)
+
+    # Release VRAM so next measurement can start immediately
+    print("Unloading model and clearing memory...")
+    del model, tokenizer, processor, results
+    clean_up()
