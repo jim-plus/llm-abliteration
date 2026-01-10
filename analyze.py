@@ -1,5 +1,6 @@
 import argparse
 import sys
+import math
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,6 +41,7 @@ cosine_similarities_harmful = []
 cosine_similarities_harmless = []
 harmful_norms = []
 harmless_norms = []
+ratio_norms = []
 refusal_directions = []
 snratios = []
 signal_quality_estimates = []
@@ -74,6 +76,8 @@ for layer in range(layers):
     harmful_norms.append(harmful_norm)
     harmless_norm = harmless_mean.norm().item()
     harmless_norms.append(harmless_norm)
+    ratio_norm = math.log(abs(harmful_norm)/abs(harmless_norm))
+    ratio_norms.append(ratio_norm)
 
     # 3. Refusal direction properties
 #    refusal_dir = harmful_mean - harmless_mean
@@ -119,6 +123,8 @@ for layer in range(layers):
     prior_harmless = harmless_mean
     prior_refusal = refusal_dir
 
+signal_quality_derivative = np.gradient(signal_quality_estimates)
+
 if (should_chart == False):
     sys.exit(0)
 
@@ -156,14 +162,18 @@ ax3.plot(layers, purity_ratios, 'darkgreen', label="Refusal purity", marker='d',
 ax3.set_xlabel('Layer', fontsize=11)
 ax3.set_ylabel('Ratio', fontsize=11)
 ax3.set_title('Signal-to-Noise and Refusal Purity Ratios vs Layer', fontsize=12, fontweight='bold')
+ax3.legend()
 ax3.grid(True, alpha=0.3)
 
 # Plot 4: Est. Signal Quality
 ax4 = axes[1, 1]
-ax4.plot(layers, signal_quality_estimates, 'teal', marker='*', linewidth=2, markersize=6)
+ax4.plot(layers, signal_quality_estimates, 'teal', marker='*', label='Signal quality estimate',linewidth=2, markersize=6)
 ax4.set_xlabel('Layer', fontsize=11)
 ax4.set_ylabel('Est. Signal Quality', fontsize=11)
 ax4.set_title('Estimated Signal Quality vs Layer', fontsize=12, fontweight='bold')
+ax4.plot(layers, ratio_norms, 'purple', label='Harmful/Harmless Log', linewidth=2, markersize=4)
+ax4.plot(layers, signal_quality_derivative, 'orange', label='Signal Quality Gradient', linewidth=2, markersize=4)
+ax4.legend()
 ax4.grid(True, alpha=0.3)
 
 plt.tight_layout()
