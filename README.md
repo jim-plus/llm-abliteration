@@ -84,6 +84,8 @@ To orthogonalize the refusal direction against the harmless direction during mea
 
 To preserve weight norms/magnitudes during ablation, specify `--normpreserve`; otherwise the result will correspond to conventional abliteration.
 
+To invert the ablation direction, shifting from ablation to addition, specify `--invert`.
+
 ### Chat with your abliterated model
 
 ```shell
