@@ -103,7 +103,10 @@ for layer in range(layers):
     refusal_orth = refusal_dir - projection
 
     # Compute purity ratio
-    purity_ratio = refusal_orth.norm() / refusal_dir.norm()
+    if refusal_dir.norm() > 0:
+        purity_ratio = refusal_orth.norm() / refusal_dir.norm()
+    else:
+        purity_ratio = 0
     purity_ratios.append(purity_ratio)
 
     # 6. Signal quality
