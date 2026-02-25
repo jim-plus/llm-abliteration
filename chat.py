@@ -61,13 +61,14 @@ if __name__ == "__main__":
         precision = getattr(model_config, "torch_dtype", None) or getattr(
             model_config, "dtype", None
         )
-        if precision is None:
-            if device == "cuda" and torch.cuda.is_bf16_supported():
-                precision = torch.bfloat16
+        if precision is None: # use current popular defaults
+            if device == "cuda":
+                if torch.cuda.is_bf16_supported():
+                    precision = torch.bfloat16
+                else:
+                    precision = torch.float16
             elif device == "mps":
                 precision = torch.float32  # float16 on MPS is unstable
-            elif device == "cuda":
-                precision = torch.float16
             else:
                 precision = torch.float32
     elif args.precision == "fp16":
@@ -144,12 +145,18 @@ if __name__ == "__main__":
             continue
         conversation.append({"role": "user", "content": prompt})
         toks = tokenizer.apply_chat_template(
-            conversation=conversation, add_generation_prompt=True, return_tensors="pt"
+            conversation=conversation,
+            add_generation_prompt=True,
+            return_tensors="pt",
+            return_dict=True,
         )
+        input_ids = toks["input_ids"]
         gen = model.generate(
-            toks.to(model.device), streamer=streamer, max_new_tokens=args.max_new_tokens
+            **{k: v.to(model.device) for k, v in toks.items()},
+            streamer=streamer,
+            max_new_tokens=args.max_new_tokens
         )
-        decoded = tokenizer.batch_decode(
-            gen[0][len(toks[0]) :], skip_special_tokens=True
+        decoded = tokenizer.decode(
+            gen[0][input_ids.shape[1]:], skip_special_tokens=True
         )
-        conversation.append({"role": "assistant", "content": "".join(decoded)})
+        conversation.append({"role": "assistant", "content": decoded})
