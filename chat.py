@@ -151,11 +151,12 @@ if __name__ == "__main__":
             return_dict=True,
         )
         input_ids = toks["input_ids"]
-        gen = model.generate(
-            **{k: v.to(model.device) for k, v in toks.items()},
-            streamer=streamer,
-            max_new_tokens=args.max_new_tokens
-        )
+        with torch.inference_mode():
+            gen = model.generate(
+                **{k: v.to(model.device) for k, v in toks.items()},
+                streamer=streamer,
+                max_new_tokens=args.max_new_tokens
+            )
         decoded = tokenizer.decode(
             gen[0][input_ids.shape[1]:], skip_special_tokens=True
         )
