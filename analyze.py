@@ -3,6 +3,7 @@ import sys
 import math
 import torch
 import matplotlib.pyplot as plt
+import heapq
 import numpy as np
 
 parser = argparse.ArgumentParser(
@@ -128,12 +129,41 @@ for layer in range(layers):
 
 signal_quality_derivative = np.gradient(signal_quality_estimates)
 
+top10 = heapq.nlargest(10, enumerate(signal_quality_estimates), key=lambda x: x[1])
+top10 = [(i,v.item()) for i,v in top10]
+print("Estimated top 10 layers to measure from:")
+print(top10)
+
+# After the main loop, compute layer-to-layer refusal direction rotation
+refusal_dir_list = [results[f'refuse_{layer}'] for layer in range(len(list(range(layers))))]
+
+rotation_consecutive = []
+rotation_from_first = []
+
+for i in range(1, len(refusal_dir_list)):
+    cos_consec = torch.nn.functional.cosine_similarity(
+        refusal_dir_list[i].float(),
+        refusal_dir_list[i-1].float(),
+        dim=0
+    ).item()
+    rotation_consecutive.append(cos_consec)
+
+    cos_from_first = torch.nn.functional.cosine_similarity(
+        refusal_dir_list[i].float(),
+        refusal_dir_list[0].float(),
+        dim=0
+    ).item()
+    rotation_from_first.append(cos_from_first)
+
+import math
+angular_velocity = [math.degrees(math.acos(max(-1.0, min(1.0, c)))) for c in rotation_consecutive]
+
 if (should_chart == False):
     sys.exit(0)
 
 # Create figure with subplots
 layers = range(layers)
-fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+fig, axes = plt.subplots(3, 2, figsize=(14, 10))
 fig.suptitle('Refusal Direction Analysis Across Layers', fontsize=16, fontweight='bold')
 
 # Plot 1: Mean Norms
@@ -178,6 +208,31 @@ ax4.plot(layers, ratio_norms, 'purple', label='Harmful/Harmless Log', linewidth=
 ax4.plot(layers, signal_quality_derivative, 'orange', label='Signal Quality Gradient', linewidth=2, markersize=4)
 ax4.legend()
 ax4.grid(True, alpha=0.3)
+
+# Plot 5: Refusal Direction Rotation
+ax5 = axes[2, 0]
+layer_range_offset = range(1, len(refusal_dir_list))
+ax5.plot(layer_range_offset, rotation_consecutive, 'navy', marker='o', 
+         label='Consecutive layer rotation', linewidth=2, markersize=4)
+ax5.plot(layer_range_offset, rotation_from_first, 'crimson', marker='o',
+         label='Rotation from layer 0', linewidth=2, markersize=4)
+ax5.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
+ax5.axhline(y=0.0, color='gray', linestyle='--', alpha=0.5)
+ax5.set_xlabel('Layer', fontsize=11)
+ax5.set_ylabel('Cosine Similarity', fontsize=11)
+ax5.set_title('Refusal Direction Rotation Across Layers', fontsize=12, fontweight='bold')
+ax5.legend()
+ax5.grid(True, alpha=0.3)
+
+# Plot 6: Angular Velocity
+ax6 = axes[2, 1]
+ax6.plot(layer_range_offset, angular_velocity, 'darkorchid', marker='o',
+         label='Angular velocity (degrees)', linewidth=2, markersize=4)
+ax6.set_xlabel('Layer', fontsize=11)
+ax6.set_ylabel('Degrees', fontsize=11)
+ax6.set_title('Refusal Direction Angular Velocity', fontsize=12, fontweight='bold')
+ax6.legend()
+ax6.grid(True, alpha=0.3)
 
 plt.tight_layout()
 plt.savefig('refusal_analysis.png', dpi=150, bbox_inches='tight')
