@@ -4,6 +4,7 @@ from transformers import (
     AutoTokenizer,
     BitsAndBytesConfig,
     AutoConfig,
+    GenerationConfig,
 )
 from argparse import ArgumentParser
 import torch
@@ -129,8 +130,14 @@ if __name__ == "__main__":
         args.model, trust_remote_code=True
     )
 
+    # sampler settings can be placed here
+    gen_config = GenerationConfig(
+        do_sample=False,
+        max_new_tokens=args.max_new_tokens,
+    )
+
     conversation = []
-    streamer = TextStreamer(tokenizer)
+    streamer = TextStreamer(tokenizer, skip_prompt=True)
     print("Type /clear to clear history, /exit to quit.")
     while True:
         prompt = input("User> ")
@@ -155,7 +162,8 @@ if __name__ == "__main__":
             gen = model.generate(
                 **{k: v.to(model.device) for k, v in toks.items()},
                 streamer=streamer,
-                max_new_tokens=args.max_new_tokens
+                generation_config=gen_config,
+                pad_token_id=tokenizer.eos_token_id,
             )
         decoded = tokenizer.decode(
             gen[0][input_ids.shape[1]:], skip_special_tokens=True
