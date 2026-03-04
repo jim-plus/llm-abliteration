@@ -134,6 +134,7 @@ if __name__ == "__main__":
     gen_config = GenerationConfig(
         do_sample=False,
         max_new_tokens=args.max_new_tokens,
+        pad_token_id=tokenizer.eos_token_id,
     )
 
     conversation = []
@@ -163,7 +164,6 @@ if __name__ == "__main__":
                 **{k: v.to(model.device) for k, v in toks.items()},
                 streamer=streamer,
                 generation_config=gen_config,
-                pad_token_id=tokenizer.eos_token_id,
             )
         decoded = tokenizer.decode(
             gen[0][input_ids.shape[1]:], skip_special_tokens=True
