@@ -382,6 +382,7 @@ def ablate_by_layers_sharded(
         "special_tokens_map.json", "generation_config.json",
         "tokenizer.model", "vocab.json", "merges.txt", "processor_config.json",
         "added_tokens.json", "preprocessor_config.json", "chat_template.json",
+        "chat_template.jinja",
         "configuration_deepseek_v3.py", "modeling_deepseek_v3.py",
         "configuration_glm4_moe.py", "modeling_glm4_moe.py"
     ]
@@ -455,13 +456,13 @@ def main():
     measures = torch.load(measurement_file)
     print(f"Loaded {len(measures)} measurements")
 
-    # Parse ablation orders
+    # Parse ablation orders, with defaults
     orders = [
         (
             int(item['layer']),
-            int(item['measurement']),
-            float(item['scale']),
-            float(item['sparsity']),
+            int(item.get('measurement', item['layer'])),
+            float(item.get('scale', 1.0)),
+            float(item.get('sparsity', 0.0)),
         )
         for item in ablations
     ]
