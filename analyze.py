@@ -56,19 +56,20 @@ for layer in range(layers):
     harmful_mean = results[f'harmful_{layer}']
     harmless_mean = results[f'harmless_{layer}']
     refusal_dir = results[f'refuse_{layer}']
+    refusalnorm_dir = results[f'refusenorm_{layer}']
     precision = refusal_dir.dtype
 
     # 1. Cosine similarity
     cos_sim = torch.nn.functional.cosine_similarity(
-        harmful_mean.float(), harmless_mean.float(), dim=0
+        harmful_mean.double(), harmless_mean.double(), dim=0
     ).item()
     cosine_similarities.append(cos_sim)
     cos_sim_harmful = torch.nn.functional.cosine_similarity(
-        harmful_mean.float(), refusal_dir.float(), dim=0
+        harmful_mean.float(), refusalnorm_dir.float(), dim=0
     ).item()
     cosine_similarities_harmful.append(cos_sim_harmful)
     cos_sim_harmless = torch.nn.functional.cosine_similarity(
-        harmless_mean.float(), refusal_dir.float(), dim=0
+        harmless_mean.float(), refusalnorm_dir.float(), dim=0
     ).item()
     cosine_similarities_harmless.append(cos_sim_harmless)
 
@@ -81,7 +82,6 @@ for layer in range(layers):
     ratio_norms.append(ratio_norm)
 
     # 3. Refusal direction properties
-#    refusal_dir = harmful_mean - harmless_mean
     refusal_norm = refusal_dir.norm().item()
     refusal_directions.append(refusal_norm)
 
@@ -100,19 +100,20 @@ for layer in range(layers):
     # Project refusal onto harmless: projection = (refusal · harmless_norm) * harmless_norm
     projection = (refusal_dir @ harmless_normalized) * harmless_normalized
 
-    # Orthogonalized refusal direction (Gram-Schmidt)
+    # Orthogonalize refusal direction (Gram-Schmidt)
     refusal_orth = refusal_dir - projection
+    #refusal_orth = refusal_dir
 
     # Compute purity ratio
     if refusal_dir.norm() > 0:
         purity_ratio = refusal_orth.norm() / refusal_dir.norm()
     else:
-        purity_ratio = 0
-    purity_ratios.append(purity_ratio)
+        purity_ratio = refusal_dir.norm() # pass through 0 or NaN
+    purity_ratios.append(purity_ratio.to(dtype=torch.float32))
 
     # 6. Signal quality
     quality = snr * (1 - cos_sim) * purity_ratio
-    signal_quality_estimates.append(quality)
+    signal_quality_estimates.append(quality.to(dtype=torch.float32))
 
     print(f"=== Refusal Direction Analysis (Layer {layer}) ===")
     print(f"Cosine similarity:       {cos_sim:.4f}")
@@ -129,10 +130,11 @@ for layer in range(layers):
 
 signal_quality_derivative = np.gradient(signal_quality_estimates)
 
-top10 = heapq.nlargest(10, enumerate(signal_quality_estimates), key=lambda x: x[1])
-top10 = [(i,v.item()) for i,v in top10]
-print("Estimated top 10 layers to measure from:")
-print(top10)
+# Heuristic concept, but of unclear validity
+#top10 = heapq.nlargest(10, enumerate(signal_quality_estimates), key=lambda x: x[1])
+#top10 = [(i,v.item()) for i,v in top10]
+#print("Estimated top 10 layers to measure from:")
+#print(top10)
 
 # After the main loop, compute layer-to-layer refusal direction rotation
 refusal_dir_list = [results[f'refuse_{layer}'] for layer in range(len(list(range(layers))))]
@@ -164,7 +166,7 @@ if (should_chart == False):
 # Create figure with subplots
 layers = range(layers)
 fig, axes = plt.subplots(3, 2, figsize=(14, 10))
-fig.suptitle('Refusal Direction Analysis Across Layers', fontsize=16, fontweight='bold')
+fig.suptitle('Contrastive Direction Analysis Across Layers', fontsize=16, fontweight='bold')
 
 # Plot 1: Mean Norms
 ax1 = axes[0, 0]
@@ -194,7 +196,7 @@ ax3.plot(layers, snratios, 'darkorange', label="Signal to noise", marker='d', li
 ax3.plot(layers, purity_ratios, 'darkgreen', label="Refusal purity", marker='d', linewidth=2, markersize=4)
 ax3.set_xlabel('Layer', fontsize=11)
 ax3.set_ylabel('Ratio', fontsize=11)
-ax3.set_title('Signal-to-Noise and Refusal Purity Ratios vs Layer', fontsize=12, fontweight='bold')
+ax3.set_title('Intervention Signal-to-Noise and Purity Ratios vs Layer', fontsize=12, fontweight='bold')
 ax3.legend()
 ax3.grid(True, alpha=0.3)
 
@@ -204,8 +206,9 @@ ax4.plot(layers, signal_quality_estimates, 'teal', marker='*', label='Signal qua
 ax4.set_xlabel('Layer', fontsize=11)
 ax4.set_ylabel('Est. Signal Quality', fontsize=11)
 ax4.set_title('Estimated Signal Quality vs Layer', fontsize=12, fontweight='bold')
-ax4.plot(layers, ratio_norms, 'purple', label='Harmful/Harmless Log', linewidth=2, markersize=4)
-ax4.plot(layers, signal_quality_derivative, 'orange', label='Signal Quality Gradient', linewidth=2, markersize=4)
+# as cool as these plots are, they get in the way of seeing signal quality
+#ax4.plot(layers, ratio_norms, 'purple', label='Harmful/Harmless Log', linewidth=2, markersize=4)
+#ax4.plot(layers, signal_quality_derivative, 'orange', label='Signal Quality Gradient', linewidth=2, markersize=4)
 ax4.legend()
 ax4.grid(True, alpha=0.3)
 
@@ -220,7 +223,7 @@ ax5.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 ax5.axhline(y=0.0, color='gray', linestyle='--', alpha=0.5)
 ax5.set_xlabel('Layer', fontsize=11)
 ax5.set_ylabel('Cosine Similarity', fontsize=11)
-ax5.set_title('Refusal Direction Rotation Across Layers', fontsize=12, fontweight='bold')
+ax5.set_title('Intervention Direction Rotation Across Layers', fontsize=12, fontweight='bold')
 ax5.legend()
 ax5.grid(True, alpha=0.3)
 
@@ -230,10 +233,10 @@ ax6.plot(layer_range_offset, angular_velocity, 'darkorchid', marker='o',
          label='Angular velocity (degrees)', linewidth=2, markersize=4)
 ax6.set_xlabel('Layer', fontsize=11)
 ax6.set_ylabel('Degrees', fontsize=11)
-ax6.set_title('Refusal Direction Angular Velocity', fontsize=12, fontweight='bold')
+ax6.set_title('Intervention Direction Angular Velocity', fontsize=12, fontweight='bold')
 ax6.legend()
 ax6.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('refusal_analysis.png', dpi=150, bbox_inches='tight')
+plt.savefig('intervention_analysis.png', dpi=150, bbox_inches='tight')
 plt.show()

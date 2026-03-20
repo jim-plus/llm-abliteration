@@ -1,10 +1,12 @@
 from transformers import (
-    TextStreamer,
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
     AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForImageTextToText,
+    AutoTokenizer,
+    AutoProcessor,
+    BitsAndBytesConfig,
     GenerationConfig,
+    TextStreamer,
 )
 from argparse import ArgumentParser
 import torch
@@ -55,10 +57,14 @@ args = parser.parse_args()
 if __name__ == "__main__":
     device = get_preferred_device(args.device)
     device_map = resolve_device_map(args.device)
+    
+    torch.inference_mode()
+    torch.set_grad_enabled(False)
+
+    model_config = AutoConfig.from_pretrained(args.model)
 
     # Resolve precision with sensible defaults
     if args.precision == "auto":
-        model_config = AutoConfig.from_pretrained(args.model)
         precision = getattr(model_config, "torch_dtype", None) or getattr(
             model_config, "dtype", None
         )
@@ -103,32 +109,78 @@ if __name__ == "__main__":
         raise RuntimeError("BitsAndBytes quantization is not supported on MPS. Please disable --load-in-4bit/--load-in-8bit or use CUDA.")
 
     if args.load_in_4bit:
+        print("Loading in 4-bit...")
         quant_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=precision,
             bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="fp4", # fp4 should be better for activations than np4
+#            llm_int8_skip_modules=None,
         )
     elif args.load_in_8bit:
+        print("Loading in 8-bit...")
         quant_config = BitsAndBytesConfig(
             load_in_8bit=True,
-            llm_int8_enable_fp32_cpu_offload=True,
-            llm_int8_has_fp16_weight=True,
+#            llm_int8_enable_fp32_cpu_offload=True,
+            llm_int8_has_fp16_weight=False,
         )
     else:
         quant_config = None
 
-    model = AutoModelForCausalLM.from_pretrained(
+    attn_impl = None
+    if args.flash_attn and device == "cuda":
+        attn_impl = "flash_attention_2"
+
+    has_vision = False
+    if hasattr(model_config,"vision_config"):
+        has_vision = True
+    model_loader = AutoModelForCausalLM
+    if (has_vision):
+        model_loader = AutoModelForImageTextToText
+
+    if hasattr(model_config, "quantization_config") and quant_config is not None:
+        print("Warning: model already has a quantization_config; --load-in-4bit/8bit flag may be ignored")
+
+    print("precision",precision)
+    print("device map",device_map)
+    print("quant config",quant_config)
+    model = model_loader.from_pretrained(
         args.model,
-        trust_remote_code=True,
-        dtype=precision,
+        torch_dtype=precision,
         low_cpu_mem_usage=True,
         device_map=device_map,
         quantization_config=quant_config,
-        attn_implementation="flash_attention_2" if args.flash_attn and device == "cuda" else None,
+        attn_implementation=attn_impl,
     )
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model, trust_remote_code=True
-    )
+
+    # Load processor for vision models, tokenizer for text-only models
+    processor = None
+    if has_vision:
+        try:
+            processor = AutoProcessor.from_pretrained(
+                args.model,
+                device_map=device_map,
+                padding=True,
+            )
+            tokenizer = processor.tokenizer
+            print("Loaded processor for vision model")
+        except (IndexError, Exception) as e:
+            # If processor loading fails, fall back to tokenizer
+            print(f"Could not load processor ({e}), falling back to tokenizer")
+            has_vision = False
+            tokenizer = AutoTokenizer.from_pretrained(
+                args.model,
+#                trust_remote_code=True,
+                device_map=device_map,
+                padding=True,
+            )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model,
+#            trust_remote_code=True,
+            device_map=device_map,
+            padding=True,
+        )
 
     # sampler settings can be placed here
     gen_config = GenerationConfig(
